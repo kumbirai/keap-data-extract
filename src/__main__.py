@@ -4,6 +4,7 @@ import sys
 from api import KeapClient
 from api.exceptions import KeapAPIError, KeapValidationError
 from utils.logging_config import setup_logging
+from scripts.load_data import main as load_data_main
 
 
 def main():
@@ -18,13 +19,9 @@ def main():
     logger.info("Starting Keap Data Extraction application")
 
     try:
-        # Initialize the API client
-        client = KeapClient()
-        logger.info("API client initialized successfully")
-
-        # Example usage
-        contacts = client.get_contacts(limit=10)
-        logger.info(f"Retrieved {len(contacts.get('contacts', []))} contacts")
+        # Execute the load_data script
+        load_data_main(resume=False)
+        logger.info("Data loading completed successfully")
 
     except KeapValidationError as e:
         logger.error(f"Validation error: {e}")
