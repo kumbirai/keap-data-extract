@@ -3,10 +3,15 @@ from sqlalchemy import (
     JSON, Text, Table, UniqueConstraint, Enum, BigInteger
 )
 from sqlalchemy.orm import relationship, declarative_base
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
+import logging
 
 Base = declarative_base()
+
+def utc_now():
+    """Return current UTC datetime with timezone information."""
+    return datetime.now(timezone.utc)
 
 # Association Tables
 contact_tag = Table(
@@ -14,7 +19,7 @@ contact_tag = Table(
     Base.metadata,
     Column('contact_id', Integer, ForeignKey('contacts.id'), primary_key=True),
     Column('tag_id', Integer, ForeignKey('tags.id'), primary_key=True),
-    Column('created_at', DateTime, default=datetime.utcnow)
+    Column('created_at', DateTime, default=utc_now)
 )
 
 class AddressType(enum.Enum):
@@ -54,8 +59,8 @@ class AccountProfile(Base):
     phone_ext = Column(String(20))
     time_zone = Column(String(50))
     website = Column(String(255))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     address = relationship("ContactAddress")
@@ -72,8 +77,8 @@ class Affiliate(Base):
     parent_id = Column(Integer, ForeignKey('affiliates.id'))
     status = Column(String(50))
     track_leads_for = Column(Integer)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     contact = relationship("Contact")
@@ -100,7 +105,7 @@ class AffiliateCommission(Base):
     sales_affiliate_id = Column(Integer)
     sold_by_first_name = Column(String(100))
     sold_by_last_name = Column(String(100))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     # Relationships
     affiliate = relationship("Affiliate", back_populates="commissions")
@@ -114,8 +119,8 @@ class AffiliateProgram(Base):
     name = Column(String(200))
     notes = Column(Text)
     priority = Column(Integer)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     affiliate = relationship("Affiliate", back_populates="programs")
@@ -129,8 +134,8 @@ class AffiliateRedirect(Base):
     name = Column(String(200))
     program_ids = Column(JSON)  # Array of integers
     redirect_url = Column(String(255))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     affiliate = relationship("Affiliate", back_populates="redirects")
@@ -143,8 +148,8 @@ class AffiliateSummary(Base):
     amount_earned = Column(Float)
     balance = Column(Float)
     clawbacks = Column(Float)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     affiliate = relationship("Affiliate")
@@ -166,7 +171,7 @@ class AffiliateClawback(Base):
     sold_by_family_name = Column(String(100))  # API uses sold_by_family_name
     sold_by_given_name = Column(String(100))  # API uses sold_by_given_name
     subscription_plan_name = Column(String(200))  # Added from API spec
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     # Relationships
     affiliate = relationship("Affiliate", back_populates="clawbacks")
@@ -181,7 +186,7 @@ class AffiliatePayment(Base):
     date = Column(DateTime)
     notes = Column(Text)
     type = Column(String(50))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     # Relationships
     affiliate = relationship("Affiliate", back_populates="payments")
@@ -199,8 +204,8 @@ class Contact(Base):
     email_status = Column(String(50))
     score_value = Column(String(50))
     owner_id = Column(Integer)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     last_updated_utc_millis = Column(BigInteger)
     
     # Relationships
@@ -223,7 +228,7 @@ class EmailAddress(Base):
     email = Column(String(255), nullable=False)
     field = Column(String(50))  # e.g., "EMAIL1", "EMAIL2"
     type = Column(String(50))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     # Relationships
     contact = relationship("Contact", back_populates="email_addresses")
@@ -240,7 +245,7 @@ class PhoneNumber(Base):
     number = Column(String(50), nullable=False)
     field = Column(String(50))  # e.g., "PHONE1", "PHONE2"
     type = Column(String(50))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     # Relationships
     contact = relationship("Contact", back_populates="phone_numbers")
@@ -259,7 +264,7 @@ class Address(Base):
     region = Column(String(100))  # Changed from state
     zip_code = Column(String(20))  # Added
     zip_four = Column(String(10))  # Added
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     # Relationships
     contact = relationship("Contact", back_populates="addresses")
@@ -271,7 +276,7 @@ class Tag(Base):
     name = Column(String(255), nullable=False)
     description = Column(Text)
     category = Column(String(100))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     # Relationships
     contacts = relationship("Contact", secondary=contact_tag, back_populates="tags")
@@ -283,7 +288,7 @@ class CustomField(Base):
     name = Column(String(100), nullable=False)
     type = Column(String(50), nullable=False)
     options = Column(JSON)  # Array of string options
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     # Relationships
     values = relationship("CustomFieldValue", back_populates="custom_field")
@@ -295,8 +300,8 @@ class CustomFieldValue(Base):
     contact_id = Column(Integer, ForeignKey('contacts.id'))
     custom_field_id = Column(Integer, ForeignKey('custom_fields.id'))
     value = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     contact = relationship("Contact", back_populates="custom_field_values")
@@ -315,8 +320,8 @@ class Opportunity(Base):
     stage = Column(String(100))
     value = Column(Float)
     probability = Column(Float)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     contact = relationship("Contact", back_populates="opportunities")
@@ -331,8 +336,8 @@ class Product(Base):
     plan_description = Column(Text)
     frequency = Column(String(50))
     price = Column(Float)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     order_items = relationship("OrderItem", back_populates="product")
@@ -346,8 +351,8 @@ class Order(Base):
     order_date = Column(DateTime, nullable=False)
     order_status = Column(String(50))
     order_total = Column(Float)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     contact = relationship("Contact", back_populates="orders")
@@ -361,7 +366,7 @@ class OrderItem(Base):
     product_id = Column(Integer, ForeignKey('products.id'))
     quantity = Column(Integer, nullable=False)
     price = Column(Float, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     # Relationships
     order = relationship("Order", back_populates="items")
@@ -376,8 +381,8 @@ class Task(Base):
     description = Column(Text)
     due_date = Column(DateTime)
     completed = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     contact = relationship("Contact", back_populates="tasks")
@@ -389,8 +394,8 @@ class Note(Base):
     contact_id = Column(Integer, ForeignKey('contacts.id'))
     title = Column(String(200))
     body = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     contact = relationship("Contact", back_populates="notes")
@@ -401,8 +406,8 @@ class Campaign(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(200), nullable=False)
     status = Column(String(50))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     sequences = relationship("CampaignSequence", back_populates="campaign")
@@ -414,8 +419,8 @@ class CampaignSequence(Base):
     campaign_id = Column(Integer, ForeignKey('campaigns.id'))
     name = Column(String(200), nullable=False)
     status = Column(String(50))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     campaign = relationship("Campaign", back_populates="sequences")
@@ -428,8 +433,8 @@ class Subscription(Base):
     product_id = Column(Integer, ForeignKey('products.id'))
     status = Column(String(50))
     next_bill_date = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    modified_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     # Relationships
     contact = relationship("Contact", back_populates="subscriptions")
