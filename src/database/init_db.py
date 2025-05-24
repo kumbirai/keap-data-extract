@@ -1,8 +1,10 @@
-from src.database.config import engine
-from src.models.models import Base
 import logging
 
+from src.database.config import engine
+from src.models.models import Base
+
 logger = logging.getLogger(__name__)
+
 
 def init_db():
     """Initialize the database by creating all tables."""
@@ -14,7 +16,9 @@ def init_db():
         logger.error(f"Error creating database tables: {str(e)}")
         raise
 
+
 if __name__ == "__main__":
     from src.utils.logging_config import setup_logging
+
     setup_logging()
-    init_db() 
+    init_db()

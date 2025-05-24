@@ -1,9 +1,10 @@
-import requests
-from typing import Dict, Any, Optional
-import os
 import logging
+import os
+from typing import Dict, Any, Optional
+
+import requests
 from dotenv import load_dotenv
-from ..utils.retry import exponential_backoff
+
 from .exceptions import (
     KeapAPIError,
     KeapAuthenticationError,
@@ -11,11 +12,13 @@ from .exceptions import (
     KeapNotFoundError,
     KeapServerError
 )
+from ..utils.retry import exponential_backoff
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
 
 load_dotenv()
+
 
 class KeapBaseClient:
     def __init__(self):
@@ -23,19 +26,19 @@ class KeapBaseClient:
         self.api_key = os.getenv('KEAP_API_KEY')
         if not self.api_key:
             raise KeapAuthenticationError("KEAP_API_KEY environment variable is not set")
-        
+
         self.headers = {
             'Accept': 'application/json',
             'X-Keap-API-Key': self.api_key
         }
-        
+
         # Initialize session for connection pooling
         self.session = requests.Session()
         self.session.headers.update(self.headers)
-        
+
         logger.info("KeapBaseClient initialized")
         logger.info(f"Using base URL: {self.base_url}")
-    
+
     def _handle_response(self, response: requests.Response) -> Dict:
         """
         Handle API response and raise appropriate exceptions
@@ -62,7 +65,7 @@ class KeapBaseClient:
             status_code = response.status_code
             logger.error(f"HTTP Error: {status_code} - {str(e)}")
             logger.error(f"Response content: {response.text}")
-            
+
             if status_code == 401:
                 raise KeapAuthenticationError("Invalid API key or authentication failed")
             elif status_code == 404:
@@ -89,7 +92,7 @@ class KeapBaseClient:
         except requests.exceptions.RequestException as e:
             logger.error(f"Request Error: {str(e)}")
             raise KeapAPIError(f"Request failed: {str(e)}")
-    
+
     @exponential_backoff(
         max_retries=5,
         base_delay=1.0,
@@ -114,7 +117,7 @@ class KeapBaseClient:
             KeapAPIError: If the request fails after all retries
         """
         url = f"{self.base_url}/{endpoint}"
-        
+
         try:
             logger.debug(f"Making {method} request to {url}")
             response = self.session.request(
@@ -126,7 +129,7 @@ class KeapBaseClient:
         except Exception as e:
             logger.error(f"Request failed: {str(e)}")
             raise
-    
+
     def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict:
         """
         Make a GET request to the Keap API
@@ -142,8 +145,8 @@ class KeapBaseClient:
             KeapAPIError: If the request fails after all retries
         """
         return self._make_request('GET', endpoint, params)
-    
+
     def __del__(self):
         """Cleanup session on object destruction"""
         if hasattr(self, 'session'):
-            self.session.close() 
+            self.session.close()

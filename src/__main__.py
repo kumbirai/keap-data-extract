@@ -1,10 +1,10 @@
-import os
-import sys
 import logging
-from pathlib import Path
-from utils.logging_config import setup_logging
+import sys
+
 from api import KeapClient
 from api.exceptions import KeapAPIError, KeapValidationError
+from utils.logging_config import setup_logging
+
 
 def main():
     # Setup logging
@@ -13,19 +13,19 @@ def main():
         log_dir="logs",
         app_name="keap_data_extract"
     )
-    
+
     logger = logging.getLogger(__name__)
     logger.info("Starting Keap Data Extraction application")
-    
+
     try:
         # Initialize the API client
         client = KeapClient()
         logger.info("API client initialized successfully")
-        
+
         # Example usage
         contacts = client.get_contacts(limit=10)
         logger.info(f"Retrieved {len(contacts.get('contacts', []))} contacts")
-        
+
     except KeapValidationError as e:
         logger.error(f"Validation error: {e}")
         sys.exit(1)
@@ -35,8 +35,9 @@ def main():
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
         sys.exit(1)
-    
+
     logger.info("Application completed successfully")
 
+
 if __name__ == "__main__":
-    main() 
+    main()
