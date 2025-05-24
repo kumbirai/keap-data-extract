@@ -201,9 +201,9 @@ def load_tags(client: KeapClient, db: Session, checkpoint_manager: CheckpointMan
             
         logger.info(f"Loaded {total_tags} tags so far")
 
-def load_custom_fields(client: KeapClient, db: Session, batch_size: int = 50, resume: bool = False) -> None:
+def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, resume: bool = False) -> None:
     """Load all custom fields."""
-    offset = 0
+    offset = checkpoint_manager.get_checkpoint('custom_fields')
     total_fields = 0
     
     # Get query parameters including since timestamp if applicable
