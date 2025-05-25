@@ -1,5 +1,6 @@
 import logging
-from typing import List, Optional
+from typing import List, Optional, Tuple, Dict, Any
+from urllib.parse import urlparse, parse_qs
 
 from .base_client import KeapBaseClient
 from .exceptions import KeapNotFoundError
@@ -47,49 +48,154 @@ from ..utils.transformers import (
     transform_affiliate_redirect,
     transform_affiliate_summary,
     transform_affiliate_clawback,
-    transform_affiliate_payment
+    transform_affiliate_payment,
+    transform_applied_tag
 )
 
 logger = logging.getLogger(__name__)
 
 
 class KeapClient(KeapBaseClient):
-    def get_contacts(self, limit: int = 50, offset: int = 0) -> List[Contact]:
-        """Get a list of contacts."""
-        params = {'limit': limit, 'offset': offset}
-        response = self.get('contacts', params)
-        logger.info(f"Raw contacts API response: {response}")
-        return transform_list_response(response, transform_contact)
+    def _parse_next_url(self, next_url: Optional[str]) -> Optional[int]:
+        """Parse the offset from a next URL.
+        
+        Args:
+            next_url: The next URL from the API response
+            
+        Returns:
+            The offset value from the URL, or None if not found
+        """
+        if not next_url:
+            return None
+            
+        try:
+            parsed_url = urlparse(next_url)
+            query_params = parse_qs(parsed_url.query)
+            offset = query_params.get('offset', [None])[0]
+            return int(offset) if offset is not None else None
+        except (ValueError, KeyError, IndexError) as e:
+            logger.warning(f"Failed to parse next URL: {next_url}. Error: {str(e)}")
+            return None
+
+    def get_contacts(self, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Contact], Dict[str, Any]]:
+        """Get a list of contacts.
+        
+        Args:
+            limit: Maximum number of contacts to return
+            offset: Offset for pagination
+            db_session: Optional database session for processing related data
+            
+        Returns:
+            Tuple containing:
+            - List of Contact objects
+            - Dictionary containing pagination metadata
+        """
+        try:
+            params = {'limit': limit, 'offset': offset, 'order': 'id'}
+            response = self.get('contacts', params)
+            logger.debug(f"Raw contacts API response: {response}")
+            
+            if not response or 'contacts' not in response:
+                logger.warning(f"Invalid response format from contacts API: {response}")
+                return [], {'next': None, 'count': 0, 'total': 0}
+            
+            # Transform each contact with its related data
+            items = []
+            for item in response.get('contacts', []):
+                try:
+                    transformed_contact = transform_contact_with_related(item, db_session)
+                    items.append(transformed_contact)
+                except Exception as e:
+                    logger.error(f"Error transforming contact: {str(e)}")
+                    logger.debug(f"Problematic contact data: {item}")
+                    continue
+            
+            # Extract pagination metadata
+            pagination = {
+                'next': response.get('next'),
+                'count': response.get('count'),
+                'total': response.get('total')
+            }
+            
+            logger.info(f"Successfully retrieved {len(items)} contacts")
+            return items, pagination
+            
+        except Exception as e:
+            logger.error(f"Error fetching contacts: {str(e)}")
+            raise
 
     def get_contact(self, contact_id: int) -> Contact:
         """Get a single contact by ID with all related data."""
         response = self.get(f'contacts/{contact_id}')
+        logger.debug(f"Raw contact API response: {response}")
         return transform_contact_with_related(response)
 
-    def get_tags(self, limit: int = 50, offset: int = 0) -> List[Tag]:
-        """Get a list of tags."""
-        params = {'limit': limit, 'offset': offset}
+    def get_tags(self, limit: int = 50, offset: int = 0) -> Tuple[List[Tag], Dict[str, Any]]:
+        """Get a list of tags.
+        
+        Args:
+            limit: Maximum number of tags to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple containing:
+            - List of Tag objects
+            - Dictionary containing pagination metadata
+        """
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get('tags', params)
+        logger.debug(f"Raw tags API response: {response}")
         return transform_list_response(response, transform_tag)
 
-    def get_custom_fields(self, limit: int = 50, offset: int = 0) -> List[CustomField]:
-        """Get a list of custom fields."""
-        params = {'limit': limit, 'offset': offset}
+    def get_custom_fields(self, limit: int = 50, offset: int = 0) -> Tuple[List[CustomField], Dict[str, Any]]:
+        """Get a list of custom fields.
+        
+        Args:
+            limit: Maximum number of custom fields to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple containing:
+            - List of CustomField objects
+            - Dictionary containing pagination metadata
+        """
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get('customFields', params)
         return transform_list_response(response, transform_custom_field)
 
-    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> List[
-        Opportunity]:
-        """Get a list of opportunities."""
-        params = {'limit': limit, 'offset': offset}
+    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Opportunity], Dict[str, Any]]:
+        """Get a list of opportunities.
+        
+        Args:
+            contact_id: Optional contact ID to filter by
+            limit: Maximum number of opportunities to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple containing:
+            - List of Opportunity objects
+            - Dictionary containing pagination metadata
+        """
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         if contact_id:
             params['contact_id'] = contact_id
         response = self.get('opportunities', params)
         return transform_list_response(response, transform_opportunity)
 
-    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None) -> List[Product]:
-        """Get a list of products, optionally filtered by subscription_only flag."""
-        params = {'limit': limit, 'offset': offset}
+    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None) -> Tuple[List[Product], Dict[str, Any]]:
+        """Get a list of products.
+        
+        Args:
+            limit: Maximum number of products to return
+            offset: Offset for pagination
+            subscription_only: Optional flag to filter subscription products
+            
+        Returns:
+            Tuple containing:
+            - List of Product objects
+            - Dictionary containing pagination metadata
+        """
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         if subscription_only is not None:
             params['subscription_only'] = subscription_only
         response = self.get('products', params)
@@ -100,9 +206,20 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'products/{product_id}')
         return transform_product(response)
 
-    def get_orders(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> List[Order]:
-        """Get a list of orders with their items."""
-        params = {'limit': limit, 'offset': offset}
+    def get_orders(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Order], Dict[str, Any]]:
+        """Get a list of orders.
+        
+        Args:
+            contact_id: Optional contact ID to filter by
+            limit: Maximum number of orders to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple containing:
+            - List of Order objects
+            - Dictionary containing pagination metadata
+        """
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         if contact_id:
             params['contact_id'] = contact_id
         response = self.get('orders', params)
@@ -122,9 +239,20 @@ class KeapClient(KeapBaseClient):
             logger.warning(f"No items found for order {order_id}")
             return []
 
-    def get_tasks(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> List[Task]:
-        """Get a list of tasks."""
-        params = {'limit': limit, 'offset': offset}
+    def get_tasks(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Task], Dict[str, Any]]:
+        """Get a list of tasks.
+        
+        Args:
+            contact_id: Optional contact ID to filter by
+            limit: Maximum number of tasks to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple containing:
+            - List of Task objects
+            - Dictionary containing pagination metadata
+        """
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         if contact_id:
             params['contact_id'] = contact_id
         response = self.get('tasks', params)
@@ -135,9 +263,20 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'tasks/{task_id}')
         return transform_task(response)
 
-    def get_notes(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> List[Note]:
-        """Get a list of notes."""
-        params = {'limit': limit, 'offset': offset}
+    def get_notes(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Note], Dict[str, Any]]:
+        """Get a list of notes.
+        
+        Args:
+            contact_id: Optional contact ID to filter by
+            limit: Maximum number of notes to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple containing:
+            - List of Note objects
+            - Dictionary containing pagination metadata
+        """
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         if contact_id:
             params['contact_id'] = contact_id
         response = self.get('notes', params)
@@ -148,9 +287,19 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'notes/{note_id}')
         return transform_note(response)
 
-    def get_campaigns(self, limit: int = 50, offset: int = 0) -> List[Campaign]:
-        """Get a list of campaigns."""
-        params = {'limit': limit, 'offset': offset}
+    def get_campaigns(self, limit: int = 50, offset: int = 0) -> Tuple[List[Campaign], Dict[str, Any]]:
+        """Get a list of campaigns.
+        
+        Args:
+            limit: Maximum number of campaigns to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple containing:
+            - List of Campaign objects
+            - Dictionary containing pagination metadata
+        """
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get('campaigns', params)
         return transform_list_response(response, transform_campaign)
 
@@ -168,10 +317,20 @@ class KeapClient(KeapBaseClient):
             logger.warning(f"No sequences found for campaign {campaign_id}")
             return []
 
-    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> List[
-        Subscription]:
-        """Get a list of subscriptions."""
-        params = {'limit': limit, 'offset': offset}
+    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Subscription], Dict[str, Any]]:
+        """Get a list of subscriptions.
+        
+        Args:
+            contact_id: Optional contact ID to filter by
+            limit: Maximum number of subscriptions to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple containing:
+            - List of Subscription objects
+            - Dictionary containing pagination metadata
+        """
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         if contact_id:
             params['contact_id'] = contact_id
         response = self.get('subscriptions', params)
@@ -233,3 +392,16 @@ class KeapClient(KeapBaseClient):
         params = {'limit': limit, 'offset': offset}
         response = self.get(f'affiliates/{affiliate_id}/payments', params)
         return transform_list_response(response, transform_affiliate_payment)
+
+    def get_contact_tags(self, contact_id: int) -> List[Tag]:
+        """Get a list of tags applied to a specific contact.
+        
+        Args:
+            contact_id: The ID of the contact to get tags for
+            
+        Returns:
+            List of Tag objects
+        """
+        response = self.get(f'contacts/{contact_id}/tags')
+        # Use a different transformer for the applied tags response
+        return [transform_applied_tag(tag_data) for tag_data in response.get('tags', [])]

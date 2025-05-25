@@ -24,4 +24,4 @@ build/
 .env.local
 
 # Logs
-*.log 
+logs/

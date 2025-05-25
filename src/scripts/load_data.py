@@ -5,10 +5,18 @@ from datetime import datetime, timezone
 from typing import Dict, Optional, Any
 
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from src.api.keap_client import KeapClient
 from src.database.config import SessionLocal
 from src.utils.logging_config import setup_logging
+from src.utils.error_logger import ErrorLogger
+from src.utils.transformers import transform_contact_with_related
+from src.models.models import (
+    Contact, Product, Campaign, Tag, Opportunity, Order, 
+    Task, Note, Subscription, EmailAddress, CustomField,
+    CustomFieldValue, PhoneNumber, Address, contact_tag, Affiliate
+)
 
 # Create logs and checkpoints directories if they don't exist
 os.makedirs('logs', exist_ok=True)
@@ -23,6 +31,9 @@ setup_logging(
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
+
+# Initialize error logger
+error_logger = ErrorLogger()
 
 
 class CheckpointManager:
@@ -40,13 +51,23 @@ class CheckpointManager:
                 return {}
         return {}
 
-    def save_checkpoint(self, entity_type: str, offset: int, timestamp: Optional[str] = None) -> None:
+    def save_checkpoint(self, entity_type: str, offset: int, completed: bool = False) -> None:
+        """Save checkpoint with optional completion timestamp.
+        
+        Args:
+            entity_type: The type of entity being loaded
+            offset: The current offset value
+            completed: Whether this is a completion checkpoint
+        """
         if entity_type not in self.checkpoints:
-            self.checkpoints[entity_type] = {}
+            self.checkpoints[entity_type] = {
+                'offset': 0,
+                'last_loaded': None
+            }
 
         self.checkpoints[entity_type]['offset'] = offset
-        if timestamp:
-            self.checkpoints[entity_type]['last_loaded'] = timestamp
+        if completed:
+            self.checkpoints[entity_type]['last_loaded'] = datetime.now(timezone.utc).isoformat()
 
         with open(self.checkpoint_file, 'w') as f:
             json.dump(self.checkpoints, f)
@@ -64,20 +85,19 @@ class CheckpointManager:
             os.remove(self.checkpoint_file)
         logger.debug("Cleared all checkpoints")
 
-    def get_query_params(self, entity_type: str, resume: bool) -> Dict[str, Any]:
-        """
-        Get the appropriate query parameters based on the entity type and resume flag.
+    def get_query_params(self, entity_type: str, update: bool = False) -> Dict[str, Any]:
+        """Get query parameters based on entity type and update flag.
         
         Args:
             entity_type: The type of entity being loaded
-            resume: Whether this is a resume operation
+            update: Whether this is an update operation
             
         Returns:
             Dict containing the query parameters to use
         """
         params = {}
 
-        if not resume:
+        if update:
             last_loaded = self.get_last_loaded_timestamp(entity_type)
             if last_loaded:
                 params['since'] = last_loaded
@@ -85,133 +105,199 @@ class CheckpointManager:
         return params
 
 
+def log_error(error_logger: ErrorLogger, entity_type: str, entity_id: int, error: Exception, additional_data: Dict = None) -> None:
+    """Helper function to log errors in a concise format.
+    
+    Args:
+        error_logger: The error logger instance
+        entity_type: Type of entity being processed
+        entity_id: ID of the entity
+        error: The exception that occurred
+        additional_data: Additional data to include in the error log
+    """
+    error_type = type(error).__name__
+    error_message = str(error)
+    
+    # For database errors, extract just the error message without the SQL details
+    if isinstance(error, SQLAlchemyError):
+        error_message = error_message.split('\n')[0]
+    
+    logger.error(f"Error processing {entity_type} {entity_id}: {error_message}")
+    
+    error_logger.log_error(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        error_type=error_type,
+        error_message=error_message,
+        additional_data=additional_data
+    )
+
+
+def insert_contact_tags(db, contact_id, tags):
+    """Helper function to insert tags into the contact_tag table."""
+    for tag in tags:
+        db.execute(
+            contact_tag.insert().values(
+                contact_id=contact_id,
+                tag_id=tag.id,
+                created_at=datetime.now(timezone.utc)
+            )
+        )
+
+
 def load_contacts(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-                  resume: bool = False) -> None:
+                  update: bool = False) -> None:
     """Load all contacts and their related data."""
-    offset = checkpoint_manager.get_checkpoint('contacts')
-    total_contacts = 0
-
-    # Get query parameters including since timestamp if applicable
-    query_params = checkpoint_manager.get_query_params('contacts', resume)
-    query_params.update({
-        'limit': batch_size,
-        'offset': offset
-    })
+    entity_type = 'contacts'
 
     while True:
-        logger.info(f"Fetching contacts with params: {query_params}")
-        contacts = client.get_contacts(**query_params)
-        logger.info(f"Received {len(contacts) if contacts else 0} contacts from API")
-
-        if not contacts:
-            logger.info("No more contacts to load")
+        # Get current offset from checkpoint
+        current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        
+        # Make API call with limit and offset
+        items, pagination = client.get_contacts(limit=batch_size, offset=current_offset, db_session=db)
+        
+        if not items:
+            # Mark as completed when no more items
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
-        processed_in_batch = 0
-        failed_contacts = []
-        current_timestamp = datetime.now(timezone.utc).isoformat()
-
-        for contact in contacts:
-            logger.info(f"Processing contact ID: {contact.id}")
-            try:
-                full_contact = client.get_contact(contact.id)
-
-                logger.info(f"Contact {contact.id} related data: "
-                            f"{len(full_contact.email_addresses)} emails, "
-                            f"{len(full_contact.phone_numbers)} phones, "
-                            f"{len(full_contact.addresses)} addresses, "
-                            f"{len(full_contact.tags)} tags, "
-                            f"{len(full_contact.custom_field_values)} custom fields")
-
-                merged_contact = db.merge(full_contact)
-                total_contacts += 1
-                processed_in_batch += 1
-
-            except Exception as e:
-                logger.error(f"Error processing contact {contact.id}: {str(e)}")
-                failed_contacts.append(contact.id)
-                continue
-
         try:
-            if processed_in_batch > 0:
-                db.commit()
-                # Update checkpoint with both offset and timestamp
-                offset += processed_in_batch
-                checkpoint_manager.save_checkpoint('contacts', offset, current_timestamp)
-                logger.debug(f"Successfully committed batch of {processed_in_batch} contacts")
+            # Process items
+            for item in items:
+                try:
+                    logger.info(f"Processing contact ID: {item.id}, Name: {item.given_name} {item.family_name} - {item.tags}")
+                    # Handle company_name if it's a dictionary
+                    if isinstance(item.company_name, dict):
+                        item.company_name = item.company_name.get('company_name')
 
-                if failed_contacts:
-                    logger.warning(f"Failed to process contacts: {failed_contacts}")
+                    # First, check if contact exists
+                    existing_contact = db.query(Contact).filter(Contact.id == item.id).first()
+                    
+                    if existing_contact:
+                        # Update existing contact's attributes
+                        for key, value in item.__dict__.items():
+                            if not key.startswith('_'):
+                                setattr(existing_contact, key, value)
+                        
+                        # Clear existing relationships
+                        existing_contact.email_addresses = []
+                        existing_contact.phone_numbers = []
+                        existing_contact.addresses = []
+                        existing_contact.tags = []
+                        existing_contact.custom_field_values = []
+                        
+                        # Add new relationships
+                        existing_contact.email_addresses = item.email_addresses
+                        existing_contact.phone_numbers = item.phone_numbers
+                        existing_contact.addresses = item.addresses
+                        existing_contact.tags = item.tags
+                        existing_contact.custom_field_values = item.custom_field_values
+                        
+                        # After adding existing contact
+                        db.add(existing_contact)
+                        db.flush()  # Ensure contact is persisted
+
+                        # Insert tags into contact_tag
+                        api_tags = client.get_contact_tags(item.id)
+                        insert_contact_tags(db, item.id, api_tags)
+                        
+                        # Commit after inserting tags
+                        db.commit()
+                    
+                    else:
+                        # Add new contact with relationships
+                        db.add(item)
+                        db.flush()  # Ensure contact is persisted
+
+                        # Insert tags into contact_tag for new contacts
+                        api_tags = client.get_contact_tags(item.id)
+                        insert_contact_tags(db, item.id, api_tags)
+                    
+                    # Commit after inserting tags
+                    db.commit()
+                    
+                except Exception as e:
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
+                    db.rollback()
+                    continue
+            
+            # Update offset based on next URL if available
+            if pagination.get('next'):
+                next_offset = client._parse_next_url(pagination['next'])
+                if next_offset is not None:
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
+                else:
+                    # If we can't parse the next URL, increment by batch size
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
+            else:
+                # No more pages
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
+                break
+
         except Exception as e:
-            logger.error(f"Error committing batch: {str(e)}")
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
             db.rollback()
-            # Don't update checkpoint on commit failure
-            continue
-
-        logger.info(f"Processed {total_contacts} contacts so far")
+            raise
 
 
-def load_tags(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-              resume: bool = False) -> None:
-    """Load all tags."""
-    offset = checkpoint_manager.get_checkpoint('tags')
-    total_tags = 0
-
-    # Get query parameters including since timestamp if applicable
-    query_params = checkpoint_manager.get_query_params('tags', resume)
-    query_params.update({
-        'limit': batch_size,
-        'offset': offset
-    })
-
+def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> None:
+    """Load tags from Keap API into database."""
+    entity_type = 'tags'
+    
     while True:
-        logger.info(f"Fetching tags with params: {query_params}")
-        tags = client.get_tags(**query_params)
-        logger.info(f"Received {len(tags) if tags else 0} tags from API")
-
-        if not tags:
+        # Get current offset from checkpoint
+        current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        
+        # Make API call with limit and offset
+        items, pagination = client.get_tags(limit=batch_size, offset=current_offset)
+        
+        if not items:
+            # Mark as completed when no more items
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
-        processed_in_batch = 0
-        failed_tags = []
-        current_timestamp = datetime.now(timezone.utc).isoformat()
-
-        for tag in tags:
-            logger.info(f"Processing tag: {tag.name} (ID: {tag.id})")
-            try:
-                merged_tag = db.merge(tag)
-                total_tags += 1
-                processed_in_batch += 1
-            except Exception as e:
-                logger.error(f"Error processing tag {tag.id}: {str(e)}")
-                failed_tags.append(tag.id)
-                continue
-
         try:
-            if processed_in_batch > 0:
-                db.commit()
-                offset += processed_in_batch
-                checkpoint_manager.save_checkpoint('tags', offset, current_timestamp)
-                logger.debug(f"Successfully committed batch of {processed_in_batch} tags")
-
-                if failed_tags:
-                    logger.warning(f"Failed to process tags: {failed_tags}")
+            # Process items
+            for item in items:
+                try:
+                    logger.info(f"Processing tag ID: {item.id}, Name: {item.name}")
+                    # Use merge operation to handle both inserts and updates
+                    merged_tag = db_session.merge(item)
+                    db_session.commit()
+                except Exception as e:
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
+                    db_session.rollback()
+                    continue
+            
+            # Update offset based on next URL if available
+            if pagination.get('next'):
+                next_offset = client._parse_next_url(pagination['next'])
+                if next_offset is not None:
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
+                else:
+                    # If we can't parse the next URL, increment by batch size
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
+            else:
+                # No more pages
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
+                break
+                
         except Exception as e:
-            logger.error(f"Error committing batch: {str(e)}")
-            db.rollback()
-            continue
-
-        logger.info(f"Loaded {total_tags} tags so far")
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
+            db_session.rollback()
+            raise
 
 
 def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-                       resume: bool = False) -> None:
+                       update: bool = False) -> None:
     """Load all custom fields."""
-    offset = checkpoint_manager.get_checkpoint('custom_fields')
+    entity_type = 'custom_fields'
+    offset = checkpoint_manager.get_checkpoint(entity_type)
     total_fields = 0
 
     # Get query parameters including since timestamp if applicable
-    query_params = checkpoint_manager.get_query_params('custom_fields', resume)
+    query_params = checkpoint_manager.get_query_params(entity_type, update)
     query_params.update({
         'limit': batch_size,
         'offset': offset
@@ -227,358 +313,328 @@ def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: Chec
 
         processed_in_batch = 0
         failed_fields = []
-        current_timestamp = datetime.now(timezone.utc).isoformat()
 
         for field in custom_fields:
-            logger.info(f"Processing custom field: {field.name} (ID: {field.id}, Type: {field.type})")
+            logger.info(f"Processing custom field ID: {field.id}, Name: {field.name}, Type: {field.type}")
             try:
-                db.add(field)
+                merged_field = db.merge(field)
                 total_fields += 1
                 processed_in_batch += 1
+                db.commit()
             except Exception as e:
                 logger.error(f"Error processing custom field {field.id}: {str(e)}")
                 failed_fields.append(field.id)
+                db.rollback()
                 continue
 
-        try:
-            if processed_in_batch > 0:
-                db.commit()
-                offset += processed_in_batch
-                checkpoint_manager.save_checkpoint('custom_fields', offset, current_timestamp)
-                logger.debug(f"Successfully committed batch of {processed_in_batch} custom fields")
+        # Update offset by the total number of custom fields received
+        offset += len(custom_fields)
+        checkpoint_manager.save_checkpoint(entity_type, offset)
+        logger.debug(f"Successfully processed batch of {processed_in_batch} custom fields")
 
-                if failed_fields:
-                    logger.warning(f"Failed to process custom fields: {failed_fields}")
-        except Exception as e:
-            logger.error(f"Error committing batch: {str(e)}")
-            db.rollback()
-            continue
+        if failed_fields:
+            logger.warning(f"Failed to process custom fields: {failed_fields}")
 
         logger.info(f"Loaded {total_fields} custom fields so far")
 
 
-def load_opportunities(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-                       resume: bool = False) -> None:
-    """Load all opportunities."""
-    offset = checkpoint_manager.get_checkpoint('opportunities')
-    total_opportunities = 0
-
-    # Get query parameters including since timestamp if applicable
-    query_params = checkpoint_manager.get_query_params('opportunities', resume)
-    query_params.update({
-        'limit': batch_size,
-        'offset': offset
-    })
-
+def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> None:
+    """Load opportunities from Keap API into database."""
+    entity_type = 'opportunities'
+    
     while True:
-        logger.info(f"Fetching opportunities with params: {query_params}")
-        opportunities = client.get_opportunities(**query_params)
-        logger.info(f"Received {len(opportunities) if opportunities else 0} opportunities from API")
-
-        if not opportunities:
+        # Get current offset from checkpoint
+        current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        
+        # Make API call with limit and offset
+        items, pagination = client.get_opportunities(limit=batch_size, offset=current_offset)
+        
+        if not items:
+            # Mark as completed when no more items
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
-        processed_in_batch = 0
-        failed_opportunities = []
-        current_timestamp = datetime.now(timezone.utc).isoformat()
-
-        for opportunity in opportunities:
-            try:
-                merged_opportunity = db.merge(opportunity)
-                total_opportunities += 1
-                processed_in_batch += 1
-            except Exception as e:
-                logger.error(f"Error processing opportunity {opportunity.id}: {str(e)}")
-                failed_opportunities.append(opportunity.id)
-                continue
-
         try:
-            if processed_in_batch > 0:
-                db.commit()
-                offset += processed_in_batch
-                checkpoint_manager.save_checkpoint('opportunities', offset, current_timestamp)
-                logger.debug(f"Successfully committed batch of {processed_in_batch} opportunities")
-
-                if failed_opportunities:
-                    logger.warning(f"Failed to process opportunities: {failed_opportunities}")
+            # Process items
+            for item in items:
+                try:
+                    logger.info(f"Processing opportunity ID: {item.id}, Title: {item.title}")
+                    # Use merge operation to handle both inserts and updates
+                    merged_opportunity = db_session.merge(item)
+                    db_session.commit()
+                except Exception as e:
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
+                    db_session.rollback()
+                    continue
+            
+            # Update offset based on next URL if available
+            if pagination.get('next'):
+                next_offset = client._parse_next_url(pagination['next'])
+                if next_offset is not None:
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
+                else:
+                    # If we can't parse the next URL, increment by batch size
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
+            else:
+                # No more pages
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
+                break
+                
         except Exception as e:
-            logger.error(f"Error committing batch: {str(e)}")
-            db.rollback()
-            continue
-
-        logger.info(f"Loaded {total_opportunities} opportunities so far")
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
+            db_session.rollback()
+            raise
 
 
-def load_products(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-                  resume: bool = False) -> None:
-    """Load all products, including subscription plans."""
-    offset = checkpoint_manager.get_checkpoint('products')
-    total_products = 0
-
-    # Get query parameters including since timestamp if applicable
-    query_params = checkpoint_manager.get_query_params('products', resume)
-    query_params.update({
-        'limit': batch_size,
-        'offset': offset
-    })
-
+def load_products(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> None:
+    """Load products from Keap API into database."""
+    entity_type = 'products'
+    
     while True:
-        logger.info(f"Fetching products with params: {query_params}")
-        products = client.get_products(**query_params)
-        logger.info(f"Received {len(products) if products else 0} products from API")
-
-        if not products:
+        # Get current offset from checkpoint
+        current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        
+        # Make API call with limit and offset
+        items, pagination = client.get_products(limit=batch_size, offset=current_offset)
+        
+        if not items:
+            # Mark as completed when no more items
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
-        processed_in_batch = 0
-        failed_products = []
-        current_timestamp = datetime.now(timezone.utc).isoformat()
-
-        for product in products:
-            try:
-                merged_product = db.merge(product)
-                total_products += 1
-                processed_in_batch += 1
-            except Exception as e:
-                logger.error(f"Error processing product {product.id}: {str(e)}")
-                failed_products.append(product.id)
-                continue
-
         try:
-            if processed_in_batch > 0:
-                db.commit()
-                offset += processed_in_batch
-                checkpoint_manager.save_checkpoint('products', offset, current_timestamp)
-                logger.debug(f"Successfully committed batch of {processed_in_batch} products")
-
-                if failed_products:
-                    logger.warning(f"Failed to process products: {failed_products}")
+            # Process items
+            for item in items:
+                try:
+                    logger.info(f"Processing product ID: {item.id}, Name: {item.product_name}")
+                    # Use merge operation to handle both inserts and updates
+                    merged_product = db_session.merge(item)
+                    db_session.commit()
+                except Exception as e:
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
+                    db_session.rollback()
+                    continue
+            
+            # Update offset based on next URL if available
+            if pagination.get('next'):
+                next_offset = client._parse_next_url(pagination['next'])
+                if next_offset is not None:
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
+                else:
+                    # If we can't parse the next URL, increment by batch size
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
+            else:
+                # No more pages
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
+                break
+                
         except Exception as e:
-            logger.error(f"Error committing batch: {str(e)}")
-            db.rollback()
-            continue
-
-        logger.info(f"Loaded {total_products} products so far")
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
+            db_session.rollback()
+            raise
 
 
-def load_orders(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-                resume: bool = False) -> None:
-    """Load all orders with their items."""
-    offset = checkpoint_manager.get_checkpoint('orders')
-    total_orders = 0
-
-    # Get query parameters including since timestamp if applicable
-    query_params = checkpoint_manager.get_query_params('orders', resume)
-    query_params.update({
-        'limit': batch_size,
-        'offset': offset
-    })
-
+def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> None:
+    """Load orders from Keap API into database."""
+    entity_type = 'orders'
+    
     while True:
-        logger.info(f"Fetching orders with params: {query_params}")
-        orders = client.get_orders(**query_params)
-        logger.info(f"Received {len(orders) if orders else 0} orders from API")
-
-        if not orders:
+        # Get current offset from checkpoint
+        current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        
+        # Make API call with limit and offset
+        items, pagination = client.get_orders(limit=batch_size, offset=current_offset)
+        
+        if not items:
+            # Mark as completed when no more items
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
-        processed_in_batch = 0
-        failed_orders = []
-        current_timestamp = datetime.now(timezone.utc).isoformat()
-
-        for order in orders:
-            try:
-                merged_order = db.merge(order)
-                total_orders += 1
-                processed_in_batch += 1
-            except Exception as e:
-                logger.error(f"Error processing order {order.id}: {str(e)}")
-                failed_orders.append(order.id)
-                continue
-
         try:
-            if processed_in_batch > 0:
-                db.commit()
-                offset += processed_in_batch
-                checkpoint_manager.save_checkpoint('orders', offset, current_timestamp)
-                logger.debug(f"Successfully committed batch of {processed_in_batch} orders")
-
-                if failed_orders:
-                    logger.warning(f"Failed to process orders: {failed_orders}")
+            # Process items
+            for item in items:
+                try:
+                    logger.info(f"Processing order ID: {item.id}, Order Number: {item.order_number}")
+                    # Use merge operation to handle both inserts and updates
+                    merged_order = db_session.merge(item)
+                    db_session.commit()
+                except Exception as e:
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
+                    db_session.rollback()
+                    continue
+            
+            # Update offset based on next URL if available
+            if pagination.get('next'):
+                next_offset = client._parse_next_url(pagination['next'])
+                if next_offset is not None:
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
+                else:
+                    # If we can't parse the next URL, increment by batch size
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
+            else:
+                # No more pages
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
+                break
+                
         except Exception as e:
-            logger.error(f"Error committing batch: {str(e)}")
-            db.rollback()
-            continue
-
-        logger.info(f"Loaded {total_orders} orders so far")
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
+            db_session.rollback()
+            raise
 
 
-def load_tasks(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-               resume: bool = False) -> None:
-    """Load all tasks."""
-    offset = checkpoint_manager.get_checkpoint('tasks')
-    total_tasks = 0
-
-    # Get query parameters including since timestamp if applicable
-    query_params = checkpoint_manager.get_query_params('tasks', resume)
-    query_params.update({
-        'limit': batch_size,
-        'offset': offset
-    })
-
+def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> None:
+    """Load tasks from Keap API into database."""
+    entity_type = 'tasks'
+    
     while True:
-        logger.info(f"Fetching tasks with params: {query_params}")
-        tasks = client.get_tasks(**query_params)
-        logger.info(f"Received {len(tasks) if tasks else 0} tasks from API")
-
-        if not tasks:
+        # Get current offset from checkpoint
+        current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        
+        # Make API call with limit and offset
+        items, pagination = client.get_tasks(limit=batch_size, offset=current_offset)
+        
+        if not items:
+            # Mark as completed when no more items
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
-        processed_in_batch = 0
-        failed_tasks = []
-        current_timestamp = datetime.now(timezone.utc).isoformat()
-
-        for task in tasks:
-            try:
-                merged_task = db.merge(task)
-                total_tasks += 1
-                processed_in_batch += 1
-            except Exception as e:
-                logger.error(f"Error processing task {task.id}: {str(e)}")
-                failed_tasks.append(task.id)
-                continue
-
         try:
-            if processed_in_batch > 0:
-                db.commit()
-                offset += processed_in_batch
-                checkpoint_manager.save_checkpoint('tasks', offset, current_timestamp)
-                logger.debug(f"Successfully committed batch of {processed_in_batch} tasks")
-
-                if failed_tasks:
-                    logger.warning(f"Failed to process tasks: {failed_tasks}")
+            # Process items
+            for item in items:
+                try:
+                    logger.info(f"Processing task ID: {item.id}, Title: {item.title}")
+                    # Use merge operation to handle both inserts and updates
+                    merged_task = db_session.merge(item)
+                    db_session.commit()
+                except Exception as e:
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
+                    db_session.rollback()
+                    continue
+            
+            # Update offset based on next URL if available
+            if pagination.get('next'):
+                next_offset = client._parse_next_url(pagination['next'])
+                if next_offset is not None:
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
+                else:
+                    # If we can't parse the next URL, increment by batch size
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
+            else:
+                # No more pages
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
+                break
+                
         except Exception as e:
-            logger.error(f"Error committing batch: {str(e)}")
-            db.rollback()
-            continue
-
-        logger.info(f"Loaded {total_tasks} tasks so far")
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
+            db_session.rollback()
+            raise
 
 
-def load_notes(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-               resume: bool = False) -> None:
-    """Load all notes."""
-    offset = checkpoint_manager.get_checkpoint('notes')
-    total_notes = 0
-
-    # Get query parameters including since timestamp if applicable
-    query_params = checkpoint_manager.get_query_params('notes', resume)
-    query_params.update({
-        'limit': batch_size,
-        'offset': offset
-    })
-
+def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> None:
+    """Load notes from Keap API into database."""
+    entity_type = 'notes'
+    
     while True:
-        logger.info(f"Fetching notes with params: {query_params}")
-        notes = client.get_notes(**query_params)
-        logger.info(f"Received {len(notes) if notes else 0} notes from API")
-
-        if not notes:
+        # Get current offset from checkpoint
+        current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        
+        # Make API call with limit and offset
+        items, pagination = client.get_notes(limit=batch_size, offset=current_offset)
+        
+        if not items:
+            # Mark as completed when no more items
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
-        processed_in_batch = 0
-        failed_notes = []
-        current_timestamp = datetime.now(timezone.utc).isoformat()
-
-        for note in notes:
-            try:
-                merged_note = db.merge(note)
-                total_notes += 1
-                processed_in_batch += 1
-            except Exception as e:
-                logger.error(f"Error processing note {note.id}: {str(e)}")
-                failed_notes.append(note.id)
-                continue
-
         try:
-            if processed_in_batch > 0:
-                db.commit()
-                offset += processed_in_batch
-                checkpoint_manager.save_checkpoint('notes', offset, current_timestamp)
-                logger.debug(f"Successfully committed batch of {processed_in_batch} notes")
-
-                if failed_notes:
-                    logger.warning(f"Failed to process notes: {failed_notes}")
+            # Process items
+            for item in items:
+                try:
+                    logger.info(f"Processing note ID: {item.id}, Contact ID: {item.contact_id}")
+                    # Use merge operation to handle both inserts and updates
+                    merged_note = db_session.merge(item)
+                    db_session.commit()
+                except Exception as e:
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
+                    db_session.rollback()
+                    continue
+            
+            # Update offset based on next URL if available
+            if pagination.get('next'):
+                next_offset = client._parse_next_url(pagination['next'])
+                if next_offset is not None:
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
+                else:
+                    # If we can't parse the next URL, increment by batch size
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
+            else:
+                # No more pages
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
+                break
+                
         except Exception as e:
-            logger.error(f"Error committing batch: {str(e)}")
-            db.rollback()
-            continue
-
-        logger.info(f"Loaded {total_notes} notes so far")
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
+            db_session.rollback()
+            raise
 
 
-def load_campaigns(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-                   resume: bool = False) -> None:
-    """Load all campaigns and their sequences."""
-    offset = checkpoint_manager.get_checkpoint('campaigns')
-    total_campaigns = 0
-
-    # Get query parameters including since timestamp if applicable
-    query_params = checkpoint_manager.get_query_params('campaigns', resume)
-    query_params.update({
-        'limit': batch_size,
-        'offset': offset
-    })
-
+def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> None:
+    """Load campaigns from Keap API into database."""
+    entity_type = 'campaigns'
+    
     while True:
-        logger.info(f"Fetching campaigns with params: {query_params}")
-        campaigns = client.get_campaigns(**query_params)
-        logger.info(f"Received {len(campaigns) if campaigns else 0} campaigns from API")
-
-        if not campaigns:
+        # Get current offset from checkpoint
+        current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        
+        # Make API call with limit and offset
+        items, pagination = client.get_campaigns(limit=batch_size, offset=current_offset)
+        
+        if not items:
+            # Mark as completed when no more items
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
-        processed_in_batch = 0
-        failed_campaigns = []
-        current_timestamp = datetime.now(timezone.utc).isoformat()
-
-        for campaign in campaigns:
-            try:
-                sequences = client.get_campaign_sequences(campaign.id)
-                campaign.sequences = sequences
-                merged_campaign = db.merge(campaign)
-                total_campaigns += 1
-                processed_in_batch += 1
-            except Exception as e:
-                logger.error(f"Error processing campaign {campaign.id}: {str(e)}")
-                failed_campaigns.append(campaign.id)
-                continue
-
         try:
-            if processed_in_batch > 0:
-                db.commit()
-                offset += processed_in_batch
-                checkpoint_manager.save_checkpoint('campaigns', offset, current_timestamp)
-                logger.debug(f"Successfully committed batch of {processed_in_batch} campaigns")
-
-                if failed_campaigns:
-                    logger.warning(f"Failed to process campaigns: {failed_campaigns}")
+            # Process items
+            for item in items:
+                try:
+                    logger.info(f"Processing campaign ID: {item.id}, Name: {item.name}")
+                    # Use merge operation to handle both inserts and updates
+                    merged_campaign = db_session.merge(item)
+                    db_session.commit()
+                except Exception as e:
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
+                    db_session.rollback()
+                    continue
+            
+            # Update offset based on next URL if available
+            if pagination.get('next'):
+                next_offset = client._parse_next_url(pagination['next'])
+                if next_offset is not None:
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
+                else:
+                    # If we can't parse the next URL, increment by batch size
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
+            else:
+                # No more pages
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
+                break
+                
         except Exception as e:
-            logger.error(f"Error committing batch: {str(e)}")
-            db.rollback()
-            continue
-
-        logger.info(f"Loaded {total_campaigns} campaigns so far")
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
+            db_session.rollback()
+            raise
 
 
 def load_subscriptions(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-                       resume: bool = False) -> None:
+                       update: bool = False) -> None:
     """Load all active subscriptions."""
-    offset = checkpoint_manager.get_checkpoint('subscriptions')
+    entity_type = 'subscriptions'
+    offset = checkpoint_manager.get_checkpoint(entity_type)
     total_subscriptions = 0
 
     # Get query parameters including since timestamp if applicable
-    query_params = checkpoint_manager.get_query_params('subscriptions', resume)
+    query_params = checkpoint_manager.get_query_params(entity_type, update)
     query_params.update({
         'limit': batch_size,
         'offset': offset
@@ -586,45 +642,441 @@ def load_subscriptions(client: KeapClient, db: Session, checkpoint_manager: Chec
 
     while True:
         logger.info(f"Fetching subscriptions with params: {query_params}")
-        subscriptions = client.get_subscriptions(**query_params)
-        logger.info(f"Received {len(subscriptions) if subscriptions else 0} subscriptions from API")
+        try:
+            subscriptions = client.get_subscriptions(**query_params)
+            logger.info(f"Received {len(subscriptions) if subscriptions else 0} subscriptions from API")
+        except Exception as e:
+            log_error(error_logger, entity_type, 0, e, {'query_params': query_params})
+            break
 
         if not subscriptions:
             break
 
         processed_in_batch = 0
         failed_subscriptions = []
-        current_timestamp = datetime.now(timezone.utc).isoformat()
 
         for subscription in subscriptions:
+            logger.info(f"Processing subscription ID: {subscription.id}, Contact ID: {subscription.contact_id}, Product ID: {subscription.product_id}")
             try:
+                # Validate subscription data
+                if not subscription.contact_id:
+                    raise ValueError("Contact ID is required for subscription")
+                if not subscription.product_id:
+                    raise ValueError("Product ID is required for subscription")
+                if not subscription.status:
+                    raise ValueError("Status is required for subscription")
+
+                # Use merge operation to handle both inserts and updates
                 merged_subscription = db.merge(subscription)
                 total_subscriptions += 1
                 processed_in_batch += 1
+                db.commit()
             except Exception as e:
-                logger.error(f"Error processing subscription {subscription.id}: {str(e)}")
+                log_error(error_logger, entity_type, subscription.id, e, {'subscription_data': subscription.__dict__})
                 failed_subscriptions.append(subscription.id)
+                db.rollback()
                 continue
 
-        try:
-            if processed_in_batch > 0:
-                db.commit()
-                offset += processed_in_batch
-                checkpoint_manager.save_checkpoint('subscriptions', offset, current_timestamp)
-                logger.debug(f"Successfully committed batch of {processed_in_batch} subscriptions")
+        # Update offset by the total number of subscriptions received
+        offset += len(subscriptions)
+        checkpoint_manager.save_checkpoint(entity_type, offset)
+        logger.debug(f"Successfully processed batch of {processed_in_batch} subscriptions")
 
-                if failed_subscriptions:
-                    logger.warning(f"Failed to process subscriptions: {failed_subscriptions}")
-        except Exception as e:
-            logger.error(f"Error committing batch: {str(e)}")
-            db.rollback()
-            continue
+        if failed_subscriptions:
+            logger.warning(f"Failed to process subscriptions: {failed_subscriptions}")
 
         logger.info(f"Loaded {total_subscriptions} subscriptions so far")
 
 
-def main(resume: bool = False):
-    """Main function to perform the initial data load."""
+def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
+                    update: bool = False) -> None:
+    """Load all affiliates."""
+    entity_type = 'affiliates'
+    offset = checkpoint_manager.get_checkpoint(entity_type)
+    total_affiliates = 0
+
+    # Get query parameters including since timestamp if applicable
+    query_params = checkpoint_manager.get_query_params(entity_type, update)
+    query_params.update({
+        'limit': batch_size,
+        'offset': offset
+    })
+
+    while True:
+        logger.info(f"Fetching affiliates with params: {query_params}")
+        try:
+            affiliates = client.get_affiliates(**query_params)
+            logger.info(f"Received {len(affiliates) if affiliates else 0} affiliates from API")
+        except Exception as e:
+            log_error(error_logger, entity_type, 0, e, {'query_params': query_params})
+            break
+
+        if not affiliates:
+            break
+
+        processed_in_batch = 0
+        failed_affiliates = []
+
+        for affiliate in affiliates:
+            logger.info(f"Processing affiliate ID: {affiliate.id}, Name: {affiliate.name}")
+            try:
+                # Validate affiliate data
+                if not affiliate.code:
+                    raise ValueError("Code is required for affiliate")
+
+                # Use merge operation to handle both inserts and updates
+                merged_affiliate = db.merge(affiliate)
+                total_affiliates += 1
+                processed_in_batch += 1
+                db.commit()
+            except Exception as e:
+                log_error(error_logger, entity_type, affiliate.id, e, {'affiliate_data': affiliate.__dict__})
+                failed_affiliates.append(affiliate.id)
+                db.rollback()
+                continue
+
+        # Update offset by the total number of affiliates received
+        offset += len(affiliates)
+        checkpoint_manager.save_checkpoint(entity_type, offset)
+        logger.debug(f"Successfully processed batch of {processed_in_batch} affiliates")
+
+        if failed_affiliates:
+            logger.warning(f"Failed to process affiliates: {failed_affiliates}")
+
+        logger.info(f"Loaded {total_affiliates} affiliates so far")
+
+
+def load_affiliate_commissions(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
+                             update: bool = False) -> None:
+    """Load all affiliate commissions."""
+    entity_type = 'affiliate_commissions'
+    offset = checkpoint_manager.get_checkpoint(entity_type)
+    total_commissions = 0
+
+    # Get query parameters including since timestamp if applicable
+    query_params = checkpoint_manager.get_query_params(entity_type, update)
+    query_params.update({
+        'limit': batch_size,
+        'offset': offset
+    })
+
+    # Get all affiliate IDs
+    affiliate_ids = [a.id for a in db.query(Affiliate).all()]
+
+    for affiliate_id in affiliate_ids:
+        logger.info(f"Processing commissions for affiliate ID: {affiliate_id}")
+        try:
+            commissions = client.get_affiliate_commissions(affiliate_id, **query_params)
+            logger.info(f"Received {len(commissions) if commissions else 0} commissions for affiliate {affiliate_id}")
+
+            if not commissions:
+                continue
+
+            processed_in_batch = 0
+            failed_commissions = []
+
+            for commission in commissions:
+                try:
+                    # Validate commission data
+                    if not commission.affiliate_id:
+                        raise ValueError("Affiliate ID is required for commission")
+
+                    # Use merge operation to handle both inserts and updates
+                    merged_commission = db.merge(commission)
+                    total_commissions += 1
+                    processed_in_batch += 1
+                    db.commit()
+                except Exception as e:
+                    log_error(error_logger, entity_type, commission.id, e, {'commission_data': commission.__dict__})
+                    failed_commissions.append(commission.id)
+                    db.rollback()
+                    continue
+
+            logger.debug(f"Successfully processed batch of {processed_in_batch} commissions for affiliate {affiliate_id}")
+
+            if failed_commissions:
+                logger.warning(f"Failed to process commissions: {failed_commissions}")
+
+        except Exception as e:
+            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
+            continue
+
+    logger.info(f"Loaded {total_commissions} commissions in total")
+
+
+def load_affiliate_programs(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
+                          update: bool = False) -> None:
+    """Load all affiliate programs."""
+    entity_type = 'affiliate_programs'
+    offset = checkpoint_manager.get_checkpoint(entity_type)
+    total_programs = 0
+
+    # Get query parameters including since timestamp if applicable
+    query_params = checkpoint_manager.get_query_params(entity_type, update)
+    query_params.update({
+        'limit': batch_size,
+        'offset': offset
+    })
+
+    # Get all affiliate IDs
+    affiliate_ids = [a.id for a in db.query(Affiliate).all()]
+
+    for affiliate_id in affiliate_ids:
+        logger.info(f"Processing programs for affiliate ID: {affiliate_id}")
+        try:
+            programs = client.get_affiliate_programs(affiliate_id, **query_params)
+            logger.info(f"Received {len(programs) if programs else 0} programs for affiliate {affiliate_id}")
+
+            if not programs:
+                continue
+
+            processed_in_batch = 0
+            failed_programs = []
+
+            for program in programs:
+                try:
+                    # Validate program data
+                    if not program.affiliate_id:
+                        raise ValueError("Affiliate ID is required for program")
+
+                    # Use merge operation to handle both inserts and updates
+                    merged_program = db.merge(program)
+                    total_programs += 1
+                    processed_in_batch += 1
+                    db.commit()
+                except Exception as e:
+                    log_error(error_logger, entity_type, program.id, e, {'program_data': program.__dict__})
+                    failed_programs.append(program.id)
+                    db.rollback()
+                    continue
+
+            logger.debug(f"Successfully processed batch of {processed_in_batch} programs for affiliate {affiliate_id}")
+
+            if failed_programs:
+                logger.warning(f"Failed to process programs: {failed_programs}")
+
+        except Exception as e:
+            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
+            continue
+
+    logger.info(f"Loaded {total_programs} programs in total")
+
+
+def load_affiliate_redirects(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
+                           update: bool = False) -> None:
+    """Load all affiliate redirects."""
+    entity_type = 'affiliate_redirects'
+    offset = checkpoint_manager.get_checkpoint(entity_type)
+    total_redirects = 0
+
+    # Get query parameters including since timestamp if applicable
+    query_params = checkpoint_manager.get_query_params(entity_type, update)
+    query_params.update({
+        'limit': batch_size,
+        'offset': offset
+    })
+
+    # Get all affiliate IDs
+    affiliate_ids = [a.id for a in db.query(Affiliate).all()]
+
+    for affiliate_id in affiliate_ids:
+        logger.info(f"Processing redirects for affiliate ID: {affiliate_id}")
+        try:
+            redirects = client.get_affiliate_redirects(affiliate_id, **query_params)
+            logger.info(f"Received {len(redirects) if redirects else 0} redirects for affiliate {affiliate_id}")
+
+            if not redirects:
+                continue
+
+            processed_in_batch = 0
+            failed_redirects = []
+
+            for redirect in redirects:
+                try:
+                    # Validate redirect data
+                    if not redirect.affiliate_id:
+                        raise ValueError("Affiliate ID is required for redirect")
+
+                    # Use merge operation to handle both inserts and updates
+                    merged_redirect = db.merge(redirect)
+                    total_redirects += 1
+                    processed_in_batch += 1
+                    db.commit()
+                except Exception as e:
+                    log_error(error_logger, entity_type, redirect.id, e, {'redirect_data': redirect.__dict__})
+                    failed_redirects.append(redirect.id)
+                    db.rollback()
+                    continue
+
+            logger.debug(f"Successfully processed batch of {processed_in_batch} redirects for affiliate {affiliate_id}")
+
+            if failed_redirects:
+                logger.warning(f"Failed to process redirects: {failed_redirects}")
+
+        except Exception as e:
+            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
+            continue
+
+    logger.info(f"Loaded {total_redirects} redirects in total")
+
+
+def load_affiliate_summaries(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager) -> None:
+    """Load all affiliate summaries."""
+    entity_type = 'affiliate_summaries'
+    total_summaries = 0
+
+    # Get all affiliate IDs
+    affiliate_ids = [a.id for a in db.query(Affiliate).all()]
+
+    for affiliate_id in affiliate_ids:
+        logger.info(f"Processing summary for affiliate ID: {affiliate_id}")
+        try:
+            summary = client.get_affiliate_summary(affiliate_id)
+            logger.info(f"Received summary for affiliate {affiliate_id}")
+
+            try:
+                # Validate summary data
+                if not summary.affiliate_id:
+                    raise ValueError("Affiliate ID is required for summary")
+
+                # Use merge operation to handle both inserts and updates
+                merged_summary = db.merge(summary)
+                total_summaries += 1
+                db.commit()
+            except Exception as e:
+                log_error(error_logger, entity_type, summary.id, e, {'summary_data': summary.__dict__})
+                db.rollback()
+                continue
+
+        except Exception as e:
+            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
+            continue
+
+    logger.info(f"Loaded {total_summaries} summaries in total")
+
+
+def load_affiliate_clawbacks(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
+                           update: bool = False) -> None:
+    """Load all affiliate clawbacks."""
+    entity_type = 'affiliate_clawbacks'
+    offset = checkpoint_manager.get_checkpoint(entity_type)
+    total_clawbacks = 0
+
+    # Get query parameters including since timestamp if applicable
+    query_params = checkpoint_manager.get_query_params(entity_type, update)
+    query_params.update({
+        'limit': batch_size,
+        'offset': offset
+    })
+
+    # Get all affiliate IDs
+    affiliate_ids = [a.id for a in db.query(Affiliate).all()]
+
+    for affiliate_id in affiliate_ids:
+        logger.info(f"Processing clawbacks for affiliate ID: {affiliate_id}")
+        try:
+            clawbacks = client.get_affiliate_clawbacks(affiliate_id, **query_params)
+            logger.info(f"Received {len(clawbacks) if clawbacks else 0} clawbacks for affiliate {affiliate_id}")
+
+            if not clawbacks:
+                continue
+
+            processed_in_batch = 0
+            failed_clawbacks = []
+
+            for clawback in clawbacks:
+                try:
+                    # Validate clawback data
+                    if not clawback.affiliate_id:
+                        raise ValueError("Affiliate ID is required for clawback")
+
+                    # Use merge operation to handle both inserts and updates
+                    merged_clawback = db.merge(clawback)
+                    total_clawbacks += 1
+                    processed_in_batch += 1
+                    db.commit()
+                except Exception as e:
+                    log_error(error_logger, entity_type, clawback.id, e, {'clawback_data': clawback.__dict__})
+                    failed_clawbacks.append(clawback.id)
+                    db.rollback()
+                    continue
+
+            logger.debug(f"Successfully processed batch of {processed_in_batch} clawbacks for affiliate {affiliate_id}")
+
+            if failed_clawbacks:
+                logger.warning(f"Failed to process clawbacks: {failed_clawbacks}")
+
+        except Exception as e:
+            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
+            continue
+
+    logger.info(f"Loaded {total_clawbacks} clawbacks in total")
+
+
+def load_affiliate_payments(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
+                          update: bool = False) -> None:
+    """Load all affiliate payments."""
+    entity_type = 'affiliate_payments'
+    offset = checkpoint_manager.get_checkpoint(entity_type)
+    total_payments = 0
+
+    # Get query parameters including since timestamp if applicable
+    query_params = checkpoint_manager.get_query_params(entity_type, update)
+    query_params.update({
+        'limit': batch_size,
+        'offset': offset
+    })
+
+    # Get all affiliate IDs
+    affiliate_ids = [a.id for a in db.query(Affiliate).all()]
+
+    for affiliate_id in affiliate_ids:
+        logger.info(f"Processing payments for affiliate ID: {affiliate_id}")
+        try:
+            payments = client.get_affiliate_payments(affiliate_id, **query_params)
+            logger.info(f"Received {len(payments) if payments else 0} payments for affiliate {affiliate_id}")
+
+            if not payments:
+                continue
+
+            processed_in_batch = 0
+            failed_payments = []
+
+            for payment in payments:
+                try:
+                    # Validate payment data
+                    if not payment.affiliate_id:
+                        raise ValueError("Affiliate ID is required for payment")
+
+                    # Use merge operation to handle both inserts and updates
+                    merged_payment = db.merge(payment)
+                    total_payments += 1
+                    processed_in_batch += 1
+                    db.commit()
+                except Exception as e:
+                    log_error(error_logger, entity_type, payment.id, e, {'payment_data': payment.__dict__})
+                    failed_payments.append(payment.id)
+                    db.rollback()
+                    continue
+
+            logger.debug(f"Successfully processed batch of {processed_in_batch} payments for affiliate {affiliate_id}")
+
+            if failed_payments:
+                logger.warning(f"Failed to process payments: {failed_payments}")
+
+        except Exception as e:
+            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
+            continue
+
+    logger.info(f"Loaded {total_payments} payments in total")
+
+
+def main(update: bool = False):
+    """Main function to perform the data load.
+    
+    Args:
+        update: Whether to perform an update operation using last_loaded timestamps
+    """
     client = KeapClient()
     db = SessionLocal()
     checkpoint_manager = CheckpointManager()
@@ -633,23 +1085,37 @@ def main(resume: bool = False):
     from src.database.init_db import init_db
     init_db()
 
-    if not resume:
+    if not update:
         checkpoint_manager.clear_checkpoints()
         logger.info("Starting fresh data load...")
     else:
-        logger.info("Resuming previous data load...")
+        logger.info("Performing update operation...")
 
     try:
         # Load data in a specific order to maintain referential integrity
-        load_tags(client, db, checkpoint_manager, resume=resume)
-        load_contacts(client, db, checkpoint_manager, resume=resume)
-        load_products(client, db, checkpoint_manager, resume=resume)
-        load_opportunities(client, db, checkpoint_manager, resume=resume)
-        load_orders(client, db, checkpoint_manager, resume=resume)
-        load_tasks(client, db, checkpoint_manager, resume=resume)
-        load_notes(client, db, checkpoint_manager, resume=resume)
-        load_campaigns(client, db, checkpoint_manager, resume=resume)
-        load_subscriptions(client, db, checkpoint_manager, resume=resume)
+        # First load tags since they are referenced by contacts
+        load_tags(client, db, checkpoint_manager, update=update)
+        
+        # Then load contacts and their related data
+        load_contacts(client, db, checkpoint_manager, update=update)
+        
+        # Load remaining data
+        load_products(client, db, checkpoint_manager, update=update)
+        load_opportunities(client, db, checkpoint_manager, update=update)
+        load_orders(client, db, checkpoint_manager, update=update)
+        load_tasks(client, db, checkpoint_manager, update=update)
+        load_notes(client, db, checkpoint_manager, update=update)
+        load_campaigns(client, db, checkpoint_manager, update=update)
+        load_subscriptions(client, db, checkpoint_manager, update=update)
+
+        # Load affiliate data after contacts are loaded
+        load_affiliates(client, db, checkpoint_manager, update=update)
+        load_affiliate_commissions(client, db, checkpoint_manager, update=update)
+        load_affiliate_programs(client, db, checkpoint_manager, update=update)
+        load_affiliate_redirects(client, db, checkpoint_manager, update=update)
+        load_affiliate_summaries(client, db, checkpoint_manager)
+        load_affiliate_clawbacks(client, db, checkpoint_manager, update=update)
+        load_affiliate_payments(client, db, checkpoint_manager, update=update)
 
         logger.info("Data load completed successfully!")
 
@@ -665,6 +1131,6 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description='Load data from Keap API')
-    parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint')
+    parser.add_argument('--update', action='store_true', help='Perform update operation using last_loaded timestamps')
     args = parser.parse_args()
-    main(resume=args.resume)
+    main(update=args.update)

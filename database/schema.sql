@@ -15,24 +15,10 @@ CREATE TABLE tags (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Contact addresses table
-CREATE TABLE contact_addresses (
-    id SERIAL PRIMARY KEY,
-    country_code VARCHAR(10),
-    field address_type NOT NULL,
-    line1 VARCHAR(255),
-    line2 VARCHAR(255),
-    locality VARCHAR(100),
-    postal_code VARCHAR(20),
-    region VARCHAR(100),
-    zip_code VARCHAR(20),
-    zip_four VARCHAR(10)
-);
-
 -- Account profiles table
 CREATE TABLE account_profiles (
     id SERIAL PRIMARY KEY,
-    address_id INTEGER REFERENCES contact_addresses(id),
+    address_id INTEGER REFERENCES addresses(id),
     business_goals JSONB,
     business_primary_color VARCHAR(50),
     business_secondary_color VARCHAR(50),
@@ -82,8 +68,7 @@ CREATE TABLE email_addresses (
     email VARCHAR(255) NOT NULL,
     field VARCHAR(50),
     type VARCHAR(50),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (contact_id, email)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Phone numbers table

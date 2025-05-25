@@ -50,7 +50,7 @@ class AccountProfile(Base):
     __tablename__ = 'account_profiles'
 
     id = Column(Integer, primary_key=True)
-    address_id = Column(Integer, ForeignKey('contact_addresses.id'))
+    address_id = Column(Integer, ForeignKey('addresses.id'))
     business_goals = Column(JSON)  # Array of strings
     business_primary_color = Column(String(50))
     business_secondary_color = Column(String(50))
@@ -68,7 +68,7 @@ class AccountProfile(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    address = relationship("ContactAddress")
+    address = relationship("Address")
 
 
 class Affiliate(Base):
@@ -221,17 +221,17 @@ class Contact(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     last_updated_utc_millis = Column(BigInteger)
 
-    # Relationships
-    email_addresses = relationship("EmailAddress", back_populates="contact")
-    phone_numbers = relationship("PhoneNumber", back_populates="contact")
-    addresses = relationship("Address", back_populates="contact")
+    # Relationships with cascade options
+    email_addresses = relationship("EmailAddress", back_populates="contact", cascade="all, delete-orphan")
+    phone_numbers = relationship("PhoneNumber", back_populates="contact", cascade="all, delete-orphan")
+    addresses = relationship("Address", back_populates="contact", cascade="all, delete-orphan")
     tags = relationship("Tag", secondary=contact_tag, back_populates="contacts")
-    custom_field_values = relationship("CustomFieldValue", back_populates="contact")
-    opportunities = relationship("Opportunity", back_populates="contact")
-    tasks = relationship("Task", back_populates="contact")
-    notes = relationship("Note", back_populates="contact")
-    orders = relationship("Order", back_populates="contact")
-    subscriptions = relationship("Subscription", back_populates="contact")
+    custom_field_values = relationship("CustomFieldValue", back_populates="contact", cascade="all, delete-orphan")
+    opportunities = relationship("Opportunity", back_populates="contact", cascade="all, delete-orphan")
+    tasks = relationship("Task", back_populates="contact", cascade="all, delete-orphan")
+    notes = relationship("Note", back_populates="contact", cascade="all, delete-orphan")
+    orders = relationship("Order", back_populates="contact", cascade="all, delete-orphan")
+    subscriptions = relationship("Subscription", back_populates="contact", cascade="all, delete-orphan")
 
 
 class EmailAddress(Base):
@@ -246,10 +246,6 @@ class EmailAddress(Base):
 
     # Relationships
     contact = relationship("Contact", back_populates="email_addresses")
-
-    __table_args__ = (
-        UniqueConstraint('contact_id', 'email', name='uix_contact_email'),
-    )
 
 
 class PhoneNumber(Base):

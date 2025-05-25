@@ -20,7 +20,7 @@ def main():
 
     try:
         # Execute the load_data script
-        load_data_main(resume=False)
+        load_data_main(update=False)
         logger.info("Data loading completed successfully")
 
     except KeapValidationError as e:
@@ -30,8 +30,8 @@ def main():
         logger.error(f"API error: {e}")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Unexpected error: {e}", exc_info=True)
-        sys.exit(1)
+        logger.error(f"Unexpected error: {str(e)}")
+        raise
 
     logger.info("Application completed successfully")
 
