@@ -60,7 +60,7 @@ class KeapBaseClient:
             response.raise_for_status()
             data = response.json()
             logger.debug(f"API Response: {data}")
-            
+
             # Log quota-related headers
             quota_headers = {
                 'x-keap-product-quota-limit': response.headers.get('x-keap-product-quota-limit'),
@@ -71,7 +71,7 @@ class KeapBaseClient:
                 'x-keap-product-quota-expiry-time': response.headers.get('x-keap-product-quota-expiry-time')
             }
             logger.debug("Quota Headers: %s", quota_headers)
-            
+
             return data
         except requests.exceptions.HTTPError as e:
             status_code = response.status_code

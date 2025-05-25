@@ -24,4 +24,5 @@ build/
 .env.local
 
 # Logs
-logs/
+/logs/
+/checkpoints/

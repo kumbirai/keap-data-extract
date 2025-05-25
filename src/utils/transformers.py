@@ -1,6 +1,6 @@
+import logging
 from datetime import datetime
 from typing import Dict, List, Any, Tuple
-import logging
 
 from ..models.models import (
     Contact, EmailAddress, PhoneNumber, Address, Tag, CustomField,
@@ -78,12 +78,12 @@ def transform_tag(api_data: Dict[str, Any]) -> Tag:
     category = api_data.get('category')
     if isinstance(category, dict):
         category = category.get('name')
-    
+
     # Validate that name exists
     name = api_data.get('name')
     if not name:
         raise ValueError(f"Tag name is required. Tag ID: {api_data.get('id')}")
-        
+
     return Tag(
         id=api_data.get('id'),
         name=name,
@@ -279,7 +279,7 @@ def transform_list_response(api_data: Dict[str, Any], transform_func: callable) 
         # Fallback to 'items' key if present
         if items is None:
             items = api_data.get('items', [])
-    
+
     # Transform items with error handling
     transformed_items = []
     for item in items:
@@ -290,14 +290,14 @@ def transform_list_response(api_data: Dict[str, Any], transform_func: callable) 
             logger.error(f"Error transforming item: {str(e)}")
             logger.debug(f"Problematic item data: {item}")
             continue
-    
+
     # Extract pagination metadata
     pagination = {
         'next': api_data.get('next'),
         'count': api_data.get('count'),
         'total': api_data.get('total')
     }
-    
+
     return transformed_items, pagination
 
 
@@ -418,6 +418,7 @@ def transform_order_with_items(api_data: Dict[str, Any]) -> Order:
         ]
 
     return order
+
 
 def transform_account_profile(api_data: Dict[str, Any]) -> AccountProfile:
     """Transform API account profile data to AccountProfile model instance."""
@@ -563,4 +564,3 @@ def transform_applied_tag(api_data: Dict[str, Any]) -> Tag:
         category=tag.get('category'),
         created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None
     )
-

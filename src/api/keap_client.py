@@ -27,7 +27,6 @@ from ..models.models import (
     AffiliatePayment
 )
 from ..utils.transformers import (
-    transform_contact,
     transform_contact_with_related,
     transform_tag,
     transform_custom_field,
@@ -67,7 +66,7 @@ class KeapClient(KeapBaseClient):
         """
         if not next_url:
             return None
-            
+
         try:
             parsed_url = urlparse(next_url)
             query_params = parse_qs(parsed_url.query)
@@ -94,11 +93,11 @@ class KeapClient(KeapBaseClient):
             params = {'limit': limit, 'offset': offset, 'order': 'id'}
             response = self.get('contacts', params)
             logger.debug(f"Raw contacts API response: {response}")
-            
+
             if not response or 'contacts' not in response:
                 logger.warning(f"Invalid response format from contacts API: {response}")
                 return [], {'next': None, 'count': 0, 'total': 0}
-            
+
             # Transform each contact with its related data
             items = []
             for item in response.get('contacts', []):
@@ -109,17 +108,17 @@ class KeapClient(KeapBaseClient):
                     logger.error(f"Error transforming contact: {str(e)}")
                     logger.debug(f"Problematic contact data: {item}")
                     continue
-            
+
             # Extract pagination metadata
             pagination = {
                 'next': response.get('next'),
                 'count': response.get('count'),
                 'total': response.get('total')
             }
-            
+
             logger.info(f"Successfully retrieved {len(items)} contacts")
             return items, pagination
-            
+
         except Exception as e:
             logger.error(f"Error fetching contacts: {str(e)}")
             raise
@@ -163,7 +162,8 @@ class KeapClient(KeapBaseClient):
         response = self.get('customFields', params)
         return transform_list_response(response, transform_custom_field)
 
-    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Opportunity], Dict[str, Any]]:
+    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[
+        List[Opportunity], Dict[str, Any]]:
         """Get a list of opportunities.
         
         Args:
@@ -182,7 +182,8 @@ class KeapClient(KeapBaseClient):
         response = self.get('opportunities', params)
         return transform_list_response(response, transform_opportunity)
 
-    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None) -> Tuple[List[Product], Dict[str, Any]]:
+    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None) -> Tuple[
+        List[Product], Dict[str, Any]]:
         """Get a list of products.
         
         Args:
@@ -206,7 +207,8 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'products/{product_id}')
         return transform_product(response)
 
-    def get_orders(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Order], Dict[str, Any]]:
+    def get_orders(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[
+        List[Order], Dict[str, Any]]:
         """Get a list of orders.
         
         Args:
@@ -239,7 +241,8 @@ class KeapClient(KeapBaseClient):
             logger.warning(f"No items found for order {order_id}")
             return []
 
-    def get_tasks(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Task], Dict[str, Any]]:
+    def get_tasks(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[
+        List[Task], Dict[str, Any]]:
         """Get a list of tasks.
         
         Args:
@@ -263,7 +266,8 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'tasks/{task_id}')
         return transform_task(response)
 
-    def get_notes(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Note], Dict[str, Any]]:
+    def get_notes(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[
+        List[Note], Dict[str, Any]]:
         """Get a list of notes.
         
         Args:
@@ -317,7 +321,8 @@ class KeapClient(KeapBaseClient):
             logger.warning(f"No sequences found for campaign {campaign_id}")
             return []
 
-    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Subscription], Dict[str, Any]]:
+    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[
+        List[Subscription], Dict[str, Any]]:
         """Get a list of subscriptions.
         
         Args:

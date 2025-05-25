@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
+
 class ErrorLogger:
     def __init__(self, error_log_dir: str = 'logs/errors'):
         self.error_log_dir = error_log_dir
@@ -17,12 +18,12 @@ class ErrorLogger:
         date_str = datetime.now().strftime('%Y%m%d')
         return os.path.join(self.error_log_dir, f'data_load_errors_{date_str}.json')
 
-    def log_error(self, 
-                 entity_type: str,
-                 entity_id: int,
-                 error_type: str,
-                 error_message: str,
-                 additional_data: Optional[Dict[str, Any]] = None) -> None:
+    def log_error(self,
+                  entity_type: str,
+                  entity_id: int,
+                  error_type: str,
+                  error_message: str,
+                  additional_data: Optional[Dict[str, Any]] = None) -> None:
         """
         Log an error with structured data.
         
@@ -73,4 +74,4 @@ class ErrorLogger:
                     return errors
         except Exception as e:
             logger.error(f"Failed to read error log file: {str(e)}")
-        return [] 
+        return []

@@ -1,10 +1,9 @@
 import logging
 import sys
 
-from src.api import KeapClient
 from src.api.exceptions import KeapAPIError, KeapValidationError
-from src.utils.logging_config import setup_logging
 from src.scripts.load_data import main as load_data_main
+from src.utils.logging_config import setup_logging
 
 
 def main():
