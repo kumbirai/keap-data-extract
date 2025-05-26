@@ -1,6 +1,6 @@
+import argparse
 import logging
 import sys
-import argparse
 
 from src.api.exceptions import KeapAPIError, KeapValidationError
 from src.scripts.load_data import main as load_data_main

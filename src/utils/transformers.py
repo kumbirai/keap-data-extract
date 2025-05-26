@@ -1,13 +1,15 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Any, Tuple
 
 from ..models.models import (
     Contact, EmailAddress, PhoneNumber, Address, Tag, CustomField,
-    CustomFieldValue, Opportunity, Product, Order, OrderItem,
+    Opportunity, Product, Order, OrderItem,
     Task, Note, Campaign, CampaignSequence, Subscription,
     AccountProfile, Affiliate, AffiliateCommission, AffiliateProgram,
-    AffiliateRedirect, AffiliateSummary, AffiliateClawback, AffiliatePayment
+    AffiliateRedirect, AffiliateSummary, AffiliateClawback, AffiliatePayment,
+    FaxNumber, BusinessGoal, AffiliateRedirectProgram, CustomFieldMetaData,
+    ContactCustomFieldValue, AddressType
 )
 
 logger = logging.getLogger(__name__)
@@ -27,17 +29,27 @@ def transform_contact(api_data: Dict[str, Any]) -> Contact:
         score_value=api_data.get('ScoreValue'),  # API uses 'ScoreValue' instead of 'score_value'
         owner_id=api_data.get('owner_id'),
         created_at=datetime.fromisoformat(api_data.get('date_created')) if api_data.get('date_created') else None,
-        # API uses 'date_created'
         modified_at=datetime.fromisoformat(api_data.get('last_updated')) if api_data.get('last_updated') else None,
-        # API uses 'last_updated'
-        last_updated_utc_millis=api_data.get('last_updated_utc_millis')
+        last_updated_utc_millis=api_data.get('last_updated_utc_millis'),
+        # New fields from API reference
+        anniversary=datetime.fromisoformat(api_data.get('anniversary')) if api_data.get('anniversary') else None,
+        birthday=datetime.fromisoformat(api_data.get('birthday')) if api_data.get('birthday') else None,
+        contact_type=api_data.get('contact_type'),
+        duplicate_option=api_data.get('duplicate_option'),
+        lead_source_id=api_data.get('lead_source_id'),
+        preferred_locale=api_data.get('preferred_locale'),
+        preferred_name=api_data.get('preferred_name'),
+        source_type=api_data.get('source_type'),
+        spouse_name=api_data.get('spouse_name'),
+        time_zone=api_data.get('time_zone'),
+        website=api_data.get('website'),
+        year_created=api_data.get('year_created')
     )
 
 
-def transform_email_address(api_data: Dict[str, Any], contact_id: int) -> EmailAddress:
+def transform_email_address(api_data: Dict[str, Any]) -> EmailAddress:
     """Transform API email address data to EmailAddress model instance."""
     return EmailAddress(
-        contact_id=contact_id,
         email=api_data.get('email'),
         field=api_data.get('field'),
         type=api_data.get('type'),
@@ -45,10 +57,9 @@ def transform_email_address(api_data: Dict[str, Any], contact_id: int) -> EmailA
     )
 
 
-def transform_phone_number(api_data: Dict[str, Any], contact_id: int) -> PhoneNumber:
+def transform_phone_number(api_data: Dict[str, Any]) -> PhoneNumber:
     """Transform API phone number data to PhoneNumber model instance."""
     return PhoneNumber(
-        contact_id=contact_id,
         number=api_data.get('number'),
         field=api_data.get('field'),
         type=api_data.get('type'),
@@ -56,12 +67,15 @@ def transform_phone_number(api_data: Dict[str, Any], contact_id: int) -> PhoneNu
     )
 
 
-def transform_address(api_data: Dict[str, Any], contact_id: int) -> Address:
+def transform_address(api_data: Dict[str, Any]) -> Address:
     """Transform API address data to Address model instance."""
+    field = api_data.get('field', 'OTHER')
+    if isinstance(field, str):
+        field = AddressType[field.upper()]
+
     return Address(
-        contact_id=contact_id,
         country_code=api_data.get('country_code'),
-        field=api_data.get('field'),
+        field=field,
         line1=api_data.get('line1'),
         line2=api_data.get('line2'),
         locality=api_data.get('locality'),
@@ -93,20 +107,44 @@ def transform_tag(api_data: Dict[str, Any]) -> Tag:
     )
 
 
-def transform_custom_field(api_data: Dict[str, Any]) -> CustomField:
-    """Transform API custom field data to CustomField model instance."""
-    return CustomField(
-        id=api_data.get('id'),
-        name=api_data.get('name'),
-        type=api_data.get('type'),
-        options=api_data.get('options'),
-        created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None
+def transform_custom_field(field_name: str, field_def: Dict[str, Any]) -> CustomField:
+    """Transform API custom field data to CustomField model instance.
+    
+    Args:
+        field_name: The name of the custom field
+        field_def: The field definition from the contact model
+        
+    Returns:
+        CustomField instance
+    """
+    custom_field = CustomField(
+        id=field_def.get('id'),
+        name=field_name,
+        type=field_def.get('type'),
+        options=field_def.get('options'),
+        created_at=datetime.now(timezone.utc)
     )
 
+    # Add metadata if available
+    if 'metadata' in field_def:
+        metadata = field_def['metadata']
+        custom_field.field_metadata = CustomFieldMetaData(
+            label=metadata.get('label'),
+            description=metadata.get('description'),
+            data_type=metadata.get('data_type'),
+            is_required=metadata.get('is_required', False),
+            is_read_only=metadata.get('is_read_only', False),
+            is_visible=metadata.get('is_visible', True),
+            created_at=datetime.now(timezone.utc)
+        )
 
-def transform_custom_field_value(api_data: Dict[str, Any], contact_id: int, custom_field_id: int) -> CustomFieldValue:
-    """Transform API custom field value data to CustomFieldValue model instance."""
-    return CustomFieldValue(
+    return custom_field
+
+
+def transform_custom_field_value(api_data: Dict[str, Any], contact_id: int,
+                                 custom_field_id: int) -> ContactCustomFieldValue:
+    """Transform API custom field value data to ContactCustomFieldValue model instance."""
+    return ContactCustomFieldValue(
         contact_id=contact_id,
         custom_field_id=custom_field_id,
         value=api_data.get('value'),
@@ -141,7 +179,6 @@ def transform_opportunity(api_data: Dict[str, Any]) -> Opportunity:
 
     return Opportunity(
         id=api_data.get('id'),
-        contact_id=api_data.get('contact_id'),
         title=title,
         stage=stage,
         value=value,
@@ -170,10 +207,14 @@ def transform_order(api_data: Dict[str, Any]) -> Order:
     """Transform API order data to Order model instance."""
     return Order(
         id=api_data.get('id'),
-        contact_id=api_data.get('contact_id'),
+        order_number=api_data.get('order_number'),
         order_date=datetime.fromisoformat(api_data.get('order_date')) if api_data.get('order_date') else None,
         order_status=api_data.get('order_status'),
         order_total=api_data.get('order_total'),
+        order_type=api_data.get('order_type'),
+        payment_plan_id=api_data.get('payment_plan_id'),
+        payment_type=api_data.get('payment_type'),
+        subscription_plan_id=api_data.get('subscription_plan_id'),
         created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None,
         modified_at=datetime.fromisoformat(api_data.get('modified_at')) if api_data.get('modified_at') else None
     )
@@ -183,11 +224,12 @@ def transform_order_item(api_data: Dict[str, Any]) -> OrderItem:
     """Transform API order item data to OrderItem model instance."""
     return OrderItem(
         id=api_data.get('id'),
-        order_id=api_data.get('order_id'),
-        product_id=api_data.get('product_id'),
         quantity=api_data.get('quantity'),
         price=api_data.get('price'),
-        created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None
+        description=api_data.get('description'),
+        subscription_plan_id=api_data.get('subscription_plan_id'),
+        created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None,
+        modified_at=datetime.fromisoformat(api_data.get('modified_at')) if api_data.get('modified_at') else None
     )
 
 
@@ -195,7 +237,6 @@ def transform_task(api_data: Dict[str, Any]) -> Task:
     """Transform API task data to Task model instance."""
     return Task(
         id=api_data.get('id'),
-        contact_id=api_data.get('contact_id'),
         title=api_data.get('title'),
         description=api_data.get('description'),
         due_date=datetime.fromisoformat(api_data.get('due_date')) if api_data.get('due_date') else None,
@@ -209,7 +250,6 @@ def transform_note(api_data: Dict[str, Any]) -> Note:
     """Transform API note data to Note model instance."""
     return Note(
         id=api_data.get('id'),
-        contact_id=api_data.get('contact_id'),
         title=api_data.get('title'),
         body=api_data.get('body'),
         created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None,
@@ -244,8 +284,6 @@ def transform_subscription(api_data: Dict[str, Any]) -> Subscription:
     """Transform API subscription data to Subscription model instance."""
     return Subscription(
         id=api_data.get('id'),
-        contact_id=api_data.get('contact_id'),
-        product_id=api_data.get('product_id'),
         status=api_data.get('status'),
         next_bill_date=datetime.fromisoformat(api_data.get('next_bill_date')) if api_data.get(
             'next_bill_date') else None,
@@ -301,109 +339,190 @@ def transform_list_response(api_data: Dict[str, Any], transform_func: callable) 
     return transformed_items, pagination
 
 
+def transform_fax_number(api_data: Dict[str, Any]) -> FaxNumber:
+    """Transform API fax number data to FaxNumber model instance."""
+    return FaxNumber(
+        number=api_data.get('number'),
+        field=api_data.get('field'),
+        type=api_data.get('type'),
+        created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None
+    )
+
+
+def transform_business_goal(api_data: Dict[str, Any], account_profile_id: int) -> BusinessGoal:
+    """Transform API business goal data to BusinessGoal model instance."""
+    return BusinessGoal(
+        account_profile_id=account_profile_id,
+        goal=api_data,
+        created_at=datetime.now(timezone.utc)
+    )
+
+
+def transform_affiliate_redirect_program(api_data: Dict[str, Any],
+                                         affiliate_redirect_id: int) -> AffiliateRedirectProgram:
+    """Transform API affiliate redirect program data to AffiliateRedirectProgram model instance."""
+    return AffiliateRedirectProgram(
+        affiliate_redirect_id=affiliate_redirect_id,
+        program_id=api_data,
+        created_at=datetime.now(timezone.utc)
+    )
+
+
 def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) -> Contact:
-    """Transform a contact with all its related data from the API."""
-    try:
-        # Convert object to dict if needed
-        if not isinstance(api_data, dict):
-            api_data = api_data.__dict__
+    """Transform API contact data with all related data to Contact model instance.
+    
+    This function handles the transformation of a contact and all its related data,
+    including email addresses, phone numbers, addresses, fax numbers, tags,
+    custom fields, opportunities, tasks, notes, orders, and subscriptions.
+    
+    Args:
+        api_data: The contact data from the API
+        db_session: Optional database session for querying related data
+        
+    Returns:
+        Contact instance with all related data
+    """
+    # First transform the basic contact data
+    contact = transform_contact(api_data)
 
-        # First transform the base contact
-        contact = transform_contact(api_data)
-        logger.debug(f"Transformed base contact with ID {contact.id}")
+    # Handle email addresses
+    if 'email_addresses' in api_data:
+        for email in api_data['email_addresses']:
+            try:
+                if isinstance(email, dict):
+                    email_address = transform_email_address(email)
+                else:
+                    email_address = transform_email_address(email.__dict__)
+                contact.email_addresses.append(email_address)
+            except Exception as e:
+                logger.error(f"Error transforming email address for contact {contact.id}: {str(e)}")
 
-        # Transform email addresses
-        if 'email_addresses' in api_data:
-            contact.email_addresses = []
-            for email in api_data['email_addresses']:
-                try:
-                    if isinstance(email, dict):
-                        contact.email_addresses.append(transform_email_address(email, contact.id))
-                    else:
-                        contact.email_addresses.append(transform_email_address(email.__dict__, contact.id))
-                except Exception as e:
-                    logger.error(f"Error transforming email address for contact {contact.id}: {str(e)}")
-                    continue
+    # Handle phone numbers
+    if 'phone_numbers' in api_data:
+        for phone in api_data['phone_numbers']:
+            try:
+                if isinstance(phone, dict):
+                    phone_number = transform_phone_number(phone)
+                else:
+                    phone_number = transform_phone_number(phone.__dict__)
+                contact.phone_numbers.append(phone_number)
+            except Exception as e:
+                logger.error(f"Error transforming phone number for contact {contact.id}: {str(e)}")
 
-        # Transform phone numbers
-        if 'phone_numbers' in api_data:
-            contact.phone_numbers = []
-            for phone in api_data['phone_numbers']:
-                try:
-                    if isinstance(phone, dict):
-                        contact.phone_numbers.append(transform_phone_number(phone, contact.id))
-                    else:
-                        contact.phone_numbers.append(transform_phone_number(phone.__dict__, contact.id))
-                except Exception as e:
-                    logger.error(f"Error transforming phone number for contact {contact.id}: {str(e)}")
-                    continue
+    # Handle addresses
+    if 'addresses' in api_data:
+        for address in api_data['addresses']:
+            try:
+                if isinstance(address, dict):
+                    address_obj = transform_address(address)
+                else:
+                    address_obj = transform_address(address.__dict__)
+                contact.addresses.append(address_obj)
+            except Exception as e:
+                logger.error(f"Error transforming address for contact {contact.id}: {str(e)}")
 
-        # Transform addresses
-        if 'addresses' in api_data:
-            contact.addresses = []
-            for address in api_data['addresses']:
-                try:
-                    if isinstance(address, dict):
-                        contact.addresses.append(transform_address(address, contact.id))
-                    else:
-                        contact.addresses.append(transform_address(address.__dict__, contact.id))
-                except Exception as e:
-                    logger.error(f"Error transforming address for contact {contact.id}: {str(e)}")
-                    continue
+    # Handle fax numbers
+    if 'fax_numbers' in api_data:
+        for fax in api_data['fax_numbers']:
+            try:
+                if isinstance(fax, dict):
+                    fax_number = transform_fax_number(fax)
+                else:
+                    fax_number = transform_fax_number(fax.__dict__)
+                contact.fax_numbers.append(fax_number)
+            except Exception as e:
+                logger.error(f"Error transforming fax number for contact {contact.id}: {str(e)}")
 
-        # Transform tags
-        if 'tag_ids' in api_data:
-            contact.tags = []
-            if db_session is None:
-                logger.warning(f"No database session provided for contact {contact.id}, skipping tag processing")
-            else:
-                for tag_id in api_data['tag_ids']:
-                    try:
-                        # Try to find existing tag
-                        existing_tag = db_session.query(Tag).filter(Tag.id == tag_id).first()
-                        if existing_tag:
-                            contact.tags.append(existing_tag)
-                        else:
-                            # Create dummy tag if it doesn't exist
-                            dummy_tag = Tag(
-                                id=tag_id,
-                                name=f"Unknown Tag {tag_id}",
-                                description="This tag was not found in the system and was created automatically",
-                                category="System Generated"
-                            )
-                            db_session.add(dummy_tag)
-                            db_session.flush()  # Flush to get the tag ID
-                            contact.tags.append(dummy_tag)
-                    except Exception as e:
-                        logger.error(f"Error processing tag {tag_id} for contact {contact.id}: {str(e)}")
-                        continue
+    # Handle tags
+    if 'tag_ids' in api_data:
+        for tag_id in api_data['tag_ids']:
+            try:
+                # Create a minimal Tag object with just the ID
+                tag_obj = Tag(
+                    id=tag_id,
+                    name=f"Tag {tag_id}",  # Generic name for new tags
+                    created_at=datetime.now(timezone.utc)
+                )
+                contact.tags.append(tag_obj)
+            except Exception as e:
+                logger.error(f"Error transforming tag for contact {contact.id}: {str(e)}")
 
-        # Transform custom field values
-        if 'custom_fields' in api_data:
-            contact.custom_field_values = []
-            for cf in api_data['custom_fields']:
-                try:
-                    if isinstance(cf, dict):
-                        contact.custom_field_values.append(transform_custom_field_value({
-                            'value': cf.get('value'),
-                            'created_at': cf.get('created_at'),
-                            'modified_at': cf.get('modified_at')
-                        }, contact.id, cf.get('id')))
-                    else:
-                        contact.custom_field_values.append(transform_custom_field_value({
-                            'value': cf.value,
-                            'created_at': cf.created_at,
-                            'modified_at': cf.modified_at
-                        }, contact.id, cf.id))
-                except Exception as e:
-                    logger.error(f"Error transforming custom field value for contact {contact.id}: {str(e)}")
-                    continue
+    # Handle custom fields
+    if 'custom_fields' in api_data:
+        for field_name, field_def in api_data['custom_fields'].items():
+            try:
+                custom_field = transform_custom_field(field_name, field_def)
+                if 'value' in field_def:
+                    custom_field_value = transform_custom_field_value(
+                        {'value': field_def['value']},
+                        contact.id,
+                        custom_field.id
+                    )
+                    contact.custom_field_values.append(custom_field_value)
+            except Exception as e:
+                logger.error(f"Error transforming custom field {field_name} for contact {contact.id}: {str(e)}")
 
-        return contact
-    except Exception as e:
-        logger.error(f"Error transforming contact: {str(e)}")
-        logger.debug(f"Problematic contact data: {api_data}")
-        raise
+    # Handle opportunities
+    if 'opportunities' in api_data:
+        for opportunity in api_data['opportunities']:
+            try:
+                if isinstance(opportunity, dict):
+                    opportunity_obj = transform_opportunity(opportunity)
+                else:
+                    opportunity_obj = transform_opportunity(opportunity.__dict__)
+                contact.opportunities.append(opportunity_obj)
+            except Exception as e:
+                logger.error(f"Error transforming opportunity for contact {contact.id}: {str(e)}")
+
+    # Handle tasks
+    if 'tasks' in api_data:
+        for task in api_data['tasks']:
+            try:
+                if isinstance(task, dict):
+                    task_obj = transform_task(task)
+                else:
+                    task_obj = transform_task(task.__dict__)
+                contact.tasks.append(task_obj)
+            except Exception as e:
+                logger.error(f"Error transforming task for contact {contact.id}: {str(e)}")
+
+    # Handle notes
+    if 'notes' in api_data:
+        for note in api_data['notes']:
+            try:
+                if isinstance(note, dict):
+                    note_obj = transform_note(note)
+                else:
+                    note_obj = transform_note(note.__dict__)
+                contact.notes.append(note_obj)
+            except Exception as e:
+                logger.error(f"Error transforming note for contact {contact.id}: {str(e)}")
+
+    # Handle orders
+    if 'orders' in api_data:
+        for order in api_data['orders']:
+            try:
+                if isinstance(order, dict):
+                    order_obj = transform_order_with_items(order)
+                else:
+                    order_obj = transform_order_with_items(order.__dict__)
+                contact.orders.append(order_obj)
+            except Exception as e:
+                logger.error(f"Error transforming order for contact {contact.id}: {str(e)}")
+
+    # Handle subscriptions
+    if 'subscriptions' in api_data:
+        for subscription in api_data['subscriptions']:
+            try:
+                if isinstance(subscription, dict):
+                    subscription_obj = transform_subscription(subscription)
+                else:
+                    subscription_obj = transform_subscription(subscription.__dict__)
+                contact.subscriptions.append(subscription_obj)
+            except Exception as e:
+                logger.error(f"Error transforming subscription for contact {contact.id}: {str(e)}")
+
+    return contact
 
 
 def transform_order_with_items(api_data: Dict[str, Any]) -> Order:
@@ -422,10 +541,9 @@ def transform_order_with_items(api_data: Dict[str, Any]) -> Order:
 
 def transform_account_profile(api_data: Dict[str, Any]) -> AccountProfile:
     """Transform API account profile data to AccountProfile model instance."""
-    return AccountProfile(
+    profile = AccountProfile(
         id=api_data.get('id'),
         address_id=api_data.get('address_id'),
-        business_goals=api_data.get('business_goals'),
         business_primary_color=api_data.get('business_primary_color'),
         business_secondary_color=api_data.get('business_secondary_color'),
         business_type=api_data.get('business_type'),
@@ -441,6 +559,18 @@ def transform_account_profile(api_data: Dict[str, Any]) -> AccountProfile:
         created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None,
         modified_at=datetime.fromisoformat(api_data.get('modified_at')) if api_data.get('modified_at') else None
     )
+
+    # Transform business goals
+    if 'business_goals' in api_data:
+        profile.business_goals = []
+        for goal in api_data['business_goals']:
+            try:
+                profile.business_goals.append(transform_business_goal(goal, profile.id))
+            except Exception as e:
+                logger.error(f"Error transforming business goal for profile {profile.id}: {str(e)}")
+                continue
+
+    return profile
 
 
 def transform_affiliate(api_data: Dict[str, Any]) -> Affiliate:
@@ -495,16 +625,27 @@ def transform_affiliate_program(api_data: Dict[str, Any]) -> AffiliateProgram:
 
 def transform_affiliate_redirect(api_data: Dict[str, Any]) -> AffiliateRedirect:
     """Transform API affiliate redirect data to AffiliateRedirect model instance."""
-    return AffiliateRedirect(
+    redirect = AffiliateRedirect(
         id=api_data.get('id'),
         affiliate_id=api_data.get('affiliate_id'),
         local_url_code=api_data.get('local_url_code'),
         name=api_data.get('name'),
-        program_ids=api_data.get('program_ids'),
         redirect_url=api_data.get('redirect_url'),
         created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None,
         modified_at=datetime.fromisoformat(api_data.get('modified_at')) if api_data.get('modified_at') else None
     )
+
+    # Transform program IDs
+    if 'program_ids' in api_data:
+        redirect.program_ids = []
+        for program_id in api_data['program_ids']:
+            try:
+                redirect.program_ids.append(transform_affiliate_redirect_program(program_id, redirect.id))
+            except Exception as e:
+                logger.error(f"Error transforming program ID for redirect {redirect.id}: {str(e)}")
+                continue
+
+    return redirect
 
 
 def transform_affiliate_summary(api_data: Dict[str, Any]) -> AffiliateSummary:

@@ -146,21 +146,105 @@ class KeapClient(KeapBaseClient):
         logger.debug(f"Raw tags API response: {response}")
         return transform_list_response(response, transform_tag)
 
-    def get_custom_fields(self, limit: int = 50, offset: int = 0) -> Tuple[List[CustomField], Dict[str, Any]]:
-        """Get a list of custom fields.
+    def get_contact_model(self) -> Dict[str, Any]:
+        """Get the contact model definition from the API.
+        
+        Returns:
+            Dictionary containing the contact model definition
+        """
+        response = self.get('contacts/model')
+        return response
+
+    def get_custom_fields(self, entity_type: str = 'contacts') -> Tuple[List[CustomField], Dict[str, Any]]:
+        """Get all custom fields from the specified entity model.
+        
+        This method retrieves all custom fields defined in the specified entity model.
+        Custom fields are not paginated as they are all returned at once from the model endpoint.
         
         Args:
-            limit: Maximum number of custom fields to return
-            offset: Offset for pagination
-            
+            entity_type: The type of entity to get custom fields for. Must be one of:
+                - 'contacts' (default)
+                - 'companies'
+                - 'opportunities'
+                - 'orders'
+                - 'subscriptions'
+        
         Returns:
             Tuple containing:
             - List of CustomField objects
-            - Dictionary containing pagination metadata
+            - Dictionary containing empty pagination metadata (for consistency with other methods)
+            
+        Raises:
+            ValueError: If an invalid entity_type is provided
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        response = self.get('customFields', params)
-        return transform_list_response(response, transform_custom_field)
+        valid_entity_types = ['contacts', 'companies', 'opportunities', 'orders', 'subscriptions']
+        if entity_type not in valid_entity_types:
+            raise ValueError(f"Invalid entity_type. Must be one of: {', '.join(valid_entity_types)}")
+
+        # Get the model for the specified entity type
+        model = self.get(f'{entity_type}/model')
+
+        # Extract custom fields from the model
+        custom_fields = []
+        custom_fields_data = model.get('custom_fields', {})
+
+        # Handle both dictionary and list responses
+        if isinstance(custom_fields_data, dict):
+            # If it's a dictionary, process each field name and definition
+            for field_name, field_def in custom_fields_data.items():
+                try:
+                    custom_field = transform_custom_field(field_name, field_def)
+                    custom_fields.append(custom_field)
+                except Exception as e:
+                    logger.error(f"Error transforming custom field {field_name} for {entity_type}: {str(e)}")
+                    continue
+        elif isinstance(custom_fields_data, list):
+            # If it's a list, each item should be a field definition with a name
+            for field_def in custom_fields_data:
+                try:
+                    field_name = field_def.get('name')
+                    custom_field = transform_custom_field(field_name, field_def)
+                    custom_fields.append(custom_field)
+                except Exception as e:
+                    logger.error(f"Error transforming custom field for {entity_type}: {str(e)}")
+                    continue
+
+        # Create empty pagination metadata for consistency
+        pagination = {
+            'next': None,
+            'count': len(custom_fields),
+            'total': len(custom_fields)
+        }
+
+        logger.info(f"Retrieved {len(custom_fields)} custom fields from {entity_type} model")
+        return custom_fields, pagination
+
+    def get_all_custom_fields(self) -> Dict[str, List[CustomField]]:
+        """Get all custom fields from all entity models.
+        
+        This method retrieves custom fields from all supported entity types:
+        - contacts
+        - companies
+        - opportunities
+        - orders
+        - subscriptions
+        
+        Returns:
+            Dictionary mapping entity types to their list of CustomField objects
+        """
+        all_custom_fields = {}
+        entity_types = ['contacts', 'companies', 'opportunities', 'orders', 'subscriptions']
+
+        for entity_type in entity_types:
+            try:
+                custom_fields, _ = self.get_custom_fields(entity_type)
+                all_custom_fields[entity_type] = custom_fields
+            except Exception as e:
+                logger.error(f"Error retrieving custom fields for {entity_type}: {str(e)}")
+                all_custom_fields[entity_type] = []
+                continue
+
+        return all_custom_fields
 
     def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[
         List[Opportunity], Dict[str, Any]]:

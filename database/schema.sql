@@ -3,6 +3,11 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Create enum types
 CREATE TYPE address_type AS ENUM ('BILLING', 'SHIPPING', 'OTHER');
+CREATE TYPE custom_field_type AS ENUM (
+    'text', 'number', 'date', 'dropdown', 'multiselect', 'radio', 'checkbox',
+    'url', 'email', 'phone', 'currency', 'percent', 'social', 'address',
+    'image', 'file'
+);
 
 -- Create tables in order of dependencies
 
@@ -19,7 +24,6 @@ CREATE TABLE tags (
 CREATE TABLE account_profiles (
     id SERIAL PRIMARY KEY,
     address_id INTEGER REFERENCES addresses(id),
-    business_goals JSONB,
     business_primary_color VARCHAR(50),
     business_secondary_color VARCHAR(50),
     business_type VARCHAR(100),
@@ -50,7 +54,18 @@ CREATE TABLE contacts (
     owner_id INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    last_updated_utc_millis BIGINT
+    anniversary TIMESTAMP WITH TIME ZONE,
+    birthday TIMESTAMP WITH TIME ZONE,
+    contact_type VARCHAR(50),
+    duplicate_option VARCHAR(50),
+    lead_source_id INTEGER,
+    preferred_locale VARCHAR(50),
+    preferred_name VARCHAR(100),
+    source_type VARCHAR(50),
+    spouse_name VARCHAR(100),
+    time_zone VARCHAR(50),
+    website VARCHAR(255),
+    year_created INTEGER
 );
 
 -- Contact-Tag association table
@@ -64,7 +79,6 @@ CREATE TABLE contact_tag (
 -- Email addresses table
 CREATE TABLE email_addresses (
     id SERIAL PRIMARY KEY,
-    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
     email VARCHAR(255) NOT NULL,
     field VARCHAR(50),
     type VARCHAR(50),
@@ -74,7 +88,6 @@ CREATE TABLE email_addresses (
 -- Phone numbers table
 CREATE TABLE phone_numbers (
     id SERIAL PRIMARY KEY,
-    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
     number VARCHAR(50) NOT NULL,
     field VARCHAR(50),
     type VARCHAR(50),
@@ -83,23 +96,81 @@ CREATE TABLE phone_numbers (
 
 -- Custom fields table
 CREATE TABLE custom_fields (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    type VARCHAR(50) NOT NULL,
-    options JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    id INTEGER PRIMARY KEY,
+    name VARCHAR(100),
+    type VARCHAR(50),
+    options JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Custom field values table
-CREATE TABLE custom_field_values (
+-- Custom field metadata table
+CREATE TABLE custom_field_metadata (
+    id SERIAL PRIMARY KEY,
+    custom_field_id INTEGER REFERENCES custom_fields(id) ON DELETE CASCADE,
+    label VARCHAR(255),
+    description TEXT,
+    data_type VARCHAR(50),
+    is_required BOOLEAN DEFAULT FALSE,
+    is_read_only BOOLEAN DEFAULT FALSE,
+    is_visible BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create index for custom field metadata
+CREATE INDEX idx_custom_field_metadata_custom_field_id ON custom_field_metadata(custom_field_id);
+
+-- Custom field values tables
+CREATE TABLE contact_custom_field_values (
     id SERIAL PRIMARY KEY,
     contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
     custom_field_id INTEGER REFERENCES custom_fields(id) ON DELETE CASCADE,
     value TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (contact_id, custom_field_id)
+    UNIQUE(contact_id, custom_field_id)
 );
+
+CREATE TABLE opportunity_custom_field_values (
+    id SERIAL PRIMARY KEY,
+    opportunity_id INTEGER REFERENCES opportunities(id) ON DELETE CASCADE,
+    custom_field_id INTEGER REFERENCES custom_fields(id) ON DELETE CASCADE,
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(opportunity_id, custom_field_id)
+);
+
+CREATE TABLE order_custom_field_values (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+    custom_field_id INTEGER REFERENCES custom_fields(id) ON DELETE CASCADE,
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (order_id, custom_field_id)
+);
+
+CREATE TABLE subscription_custom_field_values (
+    id SERIAL PRIMARY KEY,
+    subscription_id INTEGER REFERENCES subscriptions(id) ON DELETE CASCADE,
+    custom_field_id INTEGER REFERENCES custom_fields(id) ON DELETE CASCADE,
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (subscription_id, custom_field_id)
+);
+
+-- Create indexes for custom field values
+CREATE INDEX idx_contact_custom_field_values_contact_id ON contact_custom_field_values(contact_id);
+CREATE INDEX idx_contact_custom_field_values_custom_field_id ON contact_custom_field_values(custom_field_id);
+CREATE INDEX idx_opportunity_custom_field_values_opportunity_id ON opportunity_custom_field_values(opportunity_id);
+CREATE INDEX idx_opportunity_custom_field_values_custom_field_id ON opportunity_custom_field_values(custom_field_id);
+CREATE INDEX idx_order_custom_field_values_order_id ON order_custom_field_values(order_id);
+CREATE INDEX idx_order_custom_field_values_custom_field_id ON order_custom_field_values(custom_field_id);
+CREATE INDEX idx_subscription_custom_field_values_subscription_id ON subscription_custom_field_values(subscription_id);
+CREATE INDEX idx_subscription_custom_field_values_custom_field_id ON subscription_custom_field_values(custom_field_id);
 
 -- Products table
 CREATE TABLE products (
@@ -117,7 +188,6 @@ CREATE TABLE products (
 -- Orders table
 CREATE TABLE orders (
     id SERIAL PRIMARY KEY,
-    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
     order_number VARCHAR(50),
     order_date TIMESTAMP WITH TIME ZONE NOT NULL,
     order_status VARCHAR(50),
@@ -133,8 +203,6 @@ CREATE TABLE orders (
 -- Order items table
 CREATE TABLE order_items (
     id SERIAL PRIMARY KEY,
-    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
-    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
     quantity INTEGER NOT NULL,
     price FLOAT NOT NULL,
     description TEXT,
@@ -146,7 +214,6 @@ CREATE TABLE order_items (
 -- Opportunities table
 CREATE TABLE opportunities (
     id SERIAL PRIMARY KEY,
-    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
     title VARCHAR(200),
     stage VARCHAR(100),
     value DECIMAL(15,2),
@@ -158,7 +225,6 @@ CREATE TABLE opportunities (
 -- Tasks table
 CREATE TABLE tasks (
     id SERIAL PRIMARY KEY,
-    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
     title VARCHAR(200) NOT NULL,
     description TEXT,
     due_date TIMESTAMP WITH TIME ZONE,
@@ -170,7 +236,6 @@ CREATE TABLE tasks (
 -- Notes table
 CREATE TABLE notes (
     id SERIAL PRIMARY KEY,
-    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
     title VARCHAR(200),
     body TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -189,7 +254,6 @@ CREATE TABLE campaigns (
 -- Campaign sequences table
 CREATE TABLE campaign_sequences (
     id SERIAL PRIMARY KEY,
-    campaign_id INTEGER REFERENCES campaigns(id) ON DELETE CASCADE,
     name VARCHAR(200) NOT NULL,
     status VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -199,8 +263,6 @@ CREATE TABLE campaign_sequences (
 -- Subscriptions table
 CREATE TABLE subscriptions (
     id SERIAL PRIMARY KEY,
-    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
-    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
     status VARCHAR(50),
     next_bill_date TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -211,7 +273,6 @@ CREATE TABLE subscriptions (
 CREATE TABLE affiliates (
     id SERIAL PRIMARY KEY,
     code VARCHAR(100) NOT NULL,
-    contact_id INTEGER REFERENCES contacts(id),
     name VARCHAR(200),
     notify_on_lead BOOLEAN DEFAULT FALSE,
     notify_on_sale BOOLEAN DEFAULT FALSE,
@@ -227,7 +288,6 @@ CREATE TABLE affiliate_commissions (
     id SERIAL PRIMARY KEY,
     affiliate_id INTEGER REFERENCES affiliates(id),
     amount_earned FLOAT,
-    contact_id INTEGER REFERENCES contacts(id),
     contact_first_name VARCHAR(100),
     contact_last_name VARCHAR(100),
     date_earned TIMESTAMP WITH TIME ZONE,
@@ -257,7 +317,6 @@ CREATE TABLE affiliate_redirects (
     affiliate_id INTEGER REFERENCES affiliates(id),
     local_url_code VARCHAR(100),
     name VARCHAR(200),
-    program_ids JSONB,
     redirect_url VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -274,61 +333,29 @@ CREATE TABLE affiliate_summaries (
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Affiliate clawbacks table
-CREATE TABLE affiliate_clawbacks (
+-- Create fax numbers table
+CREATE TABLE fax_numbers (
     id SERIAL PRIMARY KEY,
-    affiliate_id INTEGER REFERENCES affiliates(id),
-    amount FLOAT,
-    contact_id INTEGER REFERENCES contacts(id),
-    date_earned TIMESTAMP WITH TIME ZONE,
-    description TEXT,
-    family_name VARCHAR(100),
-    given_name VARCHAR(100),
-    invoice_id INTEGER,
-    product_name VARCHAR(200),
-    sale_affiliate_id INTEGER,
-    sold_by_family_name VARCHAR(100),
-    sold_by_given_name VARCHAR(100),
-    subscription_plan_name VARCHAR(200),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Affiliate payments table
-CREATE TABLE affiliate_payments (
-    id SERIAL PRIMARY KEY,
-    affiliate_id INTEGER REFERENCES affiliates(id),
-    amount FLOAT,
-    date TIMESTAMP WITH TIME ZONE,
-    notes TEXT,
+    number VARCHAR(50) NOT NULL,
+    field VARCHAR(50),
     type VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create index for fax numbers
+CREATE INDEX idx_fax_numbers_contact_id ON fax_numbers(contact_id);
 
 -- Create indexes for better query performance
 CREATE INDEX idx_contacts_company_name ON contacts(company_name);
 CREATE INDEX idx_contacts_created_at ON contacts(created_at);
 CREATE INDEX idx_email_addresses_email ON email_addresses(email);
 CREATE INDEX idx_phone_numbers_number ON phone_numbers(number);
-CREATE INDEX idx_orders_contact_id ON orders(contact_id);
 CREATE INDEX idx_orders_order_date ON orders(order_date);
-CREATE INDEX idx_order_items_order_id ON order_items(order_id);
-CREATE INDEX idx_order_items_product_id ON order_items(product_id);
-CREATE INDEX idx_opportunities_contact_id ON opportunities(contact_id);
 CREATE INDEX idx_opportunities_stage ON opportunities(stage);
-CREATE INDEX idx_tasks_contact_id ON tasks(contact_id);
 CREATE INDEX idx_tasks_due_date ON tasks(due_date);
-CREATE INDEX idx_notes_contact_id ON notes(contact_id);
-CREATE INDEX idx_subscriptions_contact_id ON subscriptions(contact_id);
 CREATE INDEX idx_subscriptions_status ON subscriptions(status);
-CREATE INDEX idx_subscriptions_product_id ON subscriptions(product_id);
-CREATE INDEX idx_affiliates_contact_id ON affiliates(contact_id);
 CREATE INDEX idx_affiliates_code ON affiliates(code);
-CREATE INDEX idx_affiliate_commissions_affiliate_id ON affiliate_commissions(affiliate_id);
-CREATE INDEX idx_affiliate_commissions_contact_id ON affiliate_commissions(contact_id);
 CREATE INDEX idx_affiliate_commissions_date_earned ON affiliate_commissions(date_earned);
-CREATE INDEX idx_affiliate_clawbacks_affiliate_id ON affiliate_clawbacks(affiliate_id);
-CREATE INDEX idx_affiliate_clawbacks_contact_id ON affiliate_clawbacks(contact_id);
-CREATE INDEX idx_affiliate_clawbacks_date_earned ON affiliate_clawbacks(date_earned);
 
 -- Create function to update modified_at timestamp
 CREATE OR REPLACE FUNCTION update_modified_at_column()
@@ -385,8 +412,8 @@ CREATE TRIGGER update_subscriptions_modtime
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_at_column();
 
-CREATE TRIGGER update_custom_field_values_modtime
-    BEFORE UPDATE ON custom_field_values
+CREATE TRIGGER update_contact_custom_field_values_modtime
+    BEFORE UPDATE ON contact_custom_field_values
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_at_column();
 
@@ -413,4 +440,124 @@ CREATE TRIGGER update_affiliate_redirects_modtime
 CREATE TRIGGER update_affiliate_summaries_modtime
     BEFORE UPDATE ON affiliate_summaries
     FOR EACH ROW
-    EXECUTE FUNCTION update_modified_at_column(); 
+    EXECUTE FUNCTION update_modified_at_column();
+
+-- Join tables for relationships
+CREATE TABLE contact_address (
+    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    address_id INTEGER NOT NULL REFERENCES addresses(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (contact_id, address_id)
+);
+
+CREATE TABLE contact_email (
+    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    email_id INTEGER NOT NULL REFERENCES email_addresses(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (contact_id, email_id)
+);
+
+CREATE TABLE contact_phone (
+    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    phone_id INTEGER NOT NULL REFERENCES phone_numbers(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (contact_id, phone_id)
+);
+
+CREATE TABLE contact_fax (
+    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    fax_id INTEGER NOT NULL REFERENCES fax_numbers(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (contact_id, fax_id)
+);
+
+CREATE TABLE contact_opportunity (
+    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    opportunity_id INTEGER NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (contact_id, opportunity_id)
+);
+
+CREATE TABLE contact_task (
+    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (contact_id, task_id)
+);
+
+CREATE TABLE contact_note (
+    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (contact_id, note_id)
+);
+
+CREATE TABLE contact_order (
+    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (contact_id, order_id)
+);
+
+CREATE TABLE contact_subscription (
+    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (contact_id, subscription_id)
+);
+
+CREATE TABLE order_item (
+    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    item_id INTEGER NOT NULL REFERENCES order_items(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (order_id, item_id)
+);
+
+CREATE TABLE product_order_item (
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    order_item_id INTEGER NOT NULL REFERENCES order_items(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (product_id, order_item_id)
+);
+
+CREATE TABLE product_subscription (
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (product_id, subscription_id)
+);
+
+CREATE TABLE campaign_sequence (
+    campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+    sequence_id INTEGER NOT NULL REFERENCES campaign_sequences(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (campaign_id, sequence_id)
+);
+
+-- Add indexes for join tables
+CREATE INDEX idx_contact_address_contact_id ON contact_address(contact_id);
+CREATE INDEX idx_contact_address_address_id ON contact_address(address_id);
+CREATE INDEX idx_contact_email_contact_id ON contact_email(contact_id);
+CREATE INDEX idx_contact_email_email_id ON contact_email(email_id);
+CREATE INDEX idx_contact_phone_contact_id ON contact_phone(contact_id);
+CREATE INDEX idx_contact_phone_phone_id ON contact_phone(phone_id);
+CREATE INDEX idx_contact_fax_contact_id ON contact_fax(contact_id);
+CREATE INDEX idx_contact_fax_fax_id ON contact_fax(fax_id);
+CREATE INDEX idx_contact_opportunity_contact_id ON contact_opportunity(contact_id);
+CREATE INDEX idx_contact_opportunity_opportunity_id ON contact_opportunity(opportunity_id);
+CREATE INDEX idx_contact_task_contact_id ON contact_task(contact_id);
+CREATE INDEX idx_contact_task_task_id ON contact_task(task_id);
+CREATE INDEX idx_contact_note_contact_id ON contact_note(contact_id);
+CREATE INDEX idx_contact_note_note_id ON contact_note(note_id);
+CREATE INDEX idx_contact_order_contact_id ON contact_order(contact_id);
+CREATE INDEX idx_contact_order_order_id ON contact_order(order_id);
+CREATE INDEX idx_contact_subscription_contact_id ON contact_subscription(contact_id);
+CREATE INDEX idx_contact_subscription_subscription_id ON contact_subscription(subscription_id);
+CREATE INDEX idx_order_item_order_id ON order_item(order_id);
+CREATE INDEX idx_order_item_item_id ON order_item(item_id);
+CREATE INDEX idx_product_order_item_product_id ON product_order_item(product_id);
+CREATE INDEX idx_product_order_item_order_item_id ON product_order_item(order_item_id);
+CREATE INDEX idx_product_subscription_product_id ON product_subscription(product_id);
+CREATE INDEX idx_product_subscription_subscription_id ON product_subscription(subscription_id);
+CREATE INDEX idx_campaign_sequence_campaign_id ON campaign_sequence(campaign_id);
+CREATE INDEX idx_campaign_sequence_sequence_id ON campaign_sequence(sequence_id); 
