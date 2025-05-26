@@ -2,43 +2,24 @@ import argparse
 import json
 import logging
 import os
-from datetime import datetime, \
-    timezone
-from typing import Dict, \
-    Optional, \
-    Any, \
-    Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from src.api.keap_client import KeapClient
 from src.database.config import SessionLocal
-from src.models.models import (Contact,
-                               CustomField,
-                               Opportunity,
-                               Order,
-                               Task,
-                               Note,
-                               Campaign,
-                               Subscription,
-                               Affiliate,
-                               Tag)
+from src.models.models import (Affiliate, Campaign, Contact, CustomField, Note, Opportunity, Order, Subscription, Tag, Task)
 from src.utils.error_logger import ErrorLogger
 from src.utils.logging_config import setup_logging
 
 # Create logs and checkpoints directories if they don't exist
-os.makedirs('logs',
-            exist_ok=True)
-os.makedirs('checkpoints',
-            exist_ok=True)
+os.makedirs('logs', exist_ok=True)
+os.makedirs('checkpoints', exist_ok=True)
 
 # Setup logging
-setup_logging(
-    log_level=logging.INFO,
-    log_dir="logs",
-    app_name="keap_data_extract"
-)
+setup_logging(log_level=logging.INFO, log_dir="logs", app_name="keap_data_extract")
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
@@ -55,16 +36,14 @@ class AuditLogger:
     def _load_audits(self) -> Dict:
         if os.path.exists(self.audit_file):
             try:
-                with open(self.audit_file,
-                          'r') as f:
+                with open(self.audit_file, 'r') as f:
                     return json.load(f)
             except json.JSONDecodeError:
                 logger.warning("Invalid audit file, starting fresh")
                 return {}
         return {}
 
-    def log_audit(self, entity_type: str, start_time: datetime, end_time: datetime,
-                  total_records: int, success: int, failed: int) -> None:
+    def log_audit(self, entity_type: str, start_time: datetime, end_time: datetime, total_records: int, success: int, failed: int) -> None:
         """Log audit information for a data load operation.
         
         Args:
@@ -78,26 +57,16 @@ class AuditLogger:
         duration = end_time - start_time
         duration_str = str(duration).split('.')[0]  # Format as HH:MM:SS
 
-        audit_entry = {
-            'entity_type': entity_type,
-            'start_time': start_time.isoformat(),
-            'end_time': end_time.isoformat(),
-            'total_records': total_records,
-            'success': success,
-            'failed': failed,
-            'duration': duration_str
-        }
+        audit_entry = {'entity_type': entity_type, 'start_time': start_time.isoformat(), 'end_time': end_time.isoformat(), 'total_records': total_records, 'success': success, 'failed': failed,
+                       'duration': duration_str}
 
         if entity_type not in self.audits:
             self.audits[entity_type] = []
 
         self.audits[entity_type].append(audit_entry)
 
-        with open(self.audit_file,
-                  'w') as f:
-            json.dump(self.audits,
-                      f,
-                      indent=2)
+        with open(self.audit_file, 'w') as f:
+            json.dump(self.audits, f, indent=2)
 
         logger.info(f"Audit log for {entity_type}: Total={total_records}, Success={success}, "
                     f"Failed={failed}, Duration={duration_str}")
@@ -114,16 +83,13 @@ def audit_load_operation(func):
 
         try:
             # Extract entity_type from function name
-            entity_type = func.__name__.replace('load_',
-                                                '')
+            entity_type = func.__name__.replace('load_', '')
 
             # Call the original function
-            result = func(*args,
-                          **kwargs)
+            result = func(*args, **kwargs)
 
             # If the function returns a tuple of (total, success, failed), use those values
-            if isinstance(result,
-                          tuple) and len(result) == 3:
+            if isinstance(result, tuple) and len(result) == 3:
                 total_records, success_count, failed_count = result
             else:
                 # Otherwise, try to get counts from the function's local variables
@@ -141,17 +107,9 @@ def audit_load_operation(func):
         finally:
             end_time = datetime.now(timezone.utc)
             # Get the audit logger from the first argument (self)
-            audit_logger = args[0].audit_logger if hasattr(args[0],
-                                                           'audit_logger') else None
+            audit_logger = args[0].audit_logger if hasattr(args[0], 'audit_logger') else None
             if audit_logger:
-                audit_logger.log_audit(
-                    entity_type=entity_type,
-                    start_time=start_time,
-                    end_time=end_time,
-                    total_records=total_records,
-                    success=success_count,
-                    failed=failed_count
-                )
+                audit_logger.log_audit(entity_type=entity_type, start_time=start_time, end_time=end_time, total_records=total_records, success=success_count, failed=failed_count)
 
         return result
 
@@ -167,8 +125,7 @@ class CheckpointManager:
     def _load_checkpoints(self) -> Dict:
         if os.path.exists(self.checkpoint_file):
             try:
-                with open(self.checkpoint_file,
-                          'r') as f:
+                with open(self.checkpoint_file, 'r') as f:
                     return json.load(f)
             except json.JSONDecodeError:
                 logger.warning("Invalid checkpoint file, starting fresh")
@@ -184,30 +141,21 @@ class CheckpointManager:
             completed: Whether this is a completion checkpoint
         """
         if entity_type not in self.checkpoints:
-            self.checkpoints[entity_type] = {
-                'offset': 0,
-                'last_loaded': None
-            }
+            self.checkpoints[entity_type] = {'offset': 0, 'last_loaded': None}
 
         self.checkpoints[entity_type]['offset'] = offset
         if completed:
             self.checkpoints[entity_type]['last_loaded'] = datetime.now(timezone.utc).isoformat()
 
-        with open(self.checkpoint_file,
-                  'w') as f:
-            json.dump(self.checkpoints,
-                      f,
-                      indent=2)
+        with open(self.checkpoint_file, 'w') as f:
+            json.dump(self.checkpoints, f, indent=2)
         logger.debug(f"Saved checkpoint for {entity_type} at offset {offset}")
 
     def get_checkpoint(self, entity_type: str) -> int:
-        return self.checkpoints.get(entity_type,
-                                    {}).get('offset',
-                                            0)
+        return self.checkpoints.get(entity_type, {}).get('offset', 0)
 
     def get_last_loaded_timestamp(self, entity_type: str) -> Optional[str]:
-        return self.checkpoints.get(entity_type,
-                                    {}).get('last_loaded')
+        return self.checkpoints.get(entity_type, {}).get('last_loaded')
 
     def clear_checkpoints(self) -> None:
         self.checkpoints = {}
@@ -235,8 +183,7 @@ class CheckpointManager:
         return params
 
 
-def log_error(error_logger: ErrorLogger, entity_type: str, entity_id: int, error: Exception,
-              additional_data: Dict = None) -> None:
+def log_error(error_logger: ErrorLogger, entity_type: str, entity_id: int, error: Exception, additional_data: Dict = None) -> None:
     """Helper function to log errors in a concise format.
     
     Args:
@@ -250,24 +197,16 @@ def log_error(error_logger: ErrorLogger, entity_type: str, entity_id: int, error
     error_message = str(error)
 
     # For database errors, extract just the error message without the SQL details
-    if isinstance(error,
-                  SQLAlchemyError):
+    if isinstance(error, SQLAlchemyError):
         error_message = error_message.split('\n')[0]
 
     logger.error(f"Error processing {entity_type} {entity_id}: {error_message}")
 
-    error_logger.log_error(
-        entity_type=entity_type,
-        entity_id=entity_id,
-        error_type=error_type,
-        error_message=error_message,
-        additional_data=additional_data
-    )
+    error_logger.log_error(entity_type=entity_type, entity_id=entity_id, error_type=error_type, error_message=error_message, additional_data=additional_data)
 
 
 @audit_load_operation
-def load_contacts(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-                  update: bool = False) -> tuple:
+def load_contacts(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load all contacts and their related data.
     
     This function loads contacts and all their related data including:
@@ -304,15 +243,11 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
         logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
-        items, pagination = client.get_contacts(limit=batch_size,
-                                                offset=current_offset,
-                                                db_session=db)
+        items, pagination = client.get_contacts(limit=batch_size, offset=current_offset, db_session=db)
 
         if not items:
             # Mark as completed when no more items
-            checkpoint_manager.save_checkpoint(entity_type,
-                                               current_offset,
-                                               completed=True)
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
         try:
@@ -333,9 +268,7 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
                         # Update existing contact's attributes
                         for key, value in full_contact.__dict__.items():
                             if not key.startswith('_'):
-                                setattr(existing_contact,
-                                        key,
-                                        value)
+                                setattr(existing_contact, key, value)
 
                         # Clear existing relationships
                         existing_contact.email_addresses = []
@@ -360,8 +293,7 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
                         existing_contact.addresses = full_contact.addresses
                         existing_contact.fax_numbers = full_contact.fax_numbers
                         # Get tag IDs
-                        tags = full_contact.tags if hasattr(full_contact,
-                                                            'tags') else []
+                        tags = full_contact.tags if hasattr(full_contact, 'tags') else []
                         tag_ids = [tag.id for tag in tags]
                         # Clean up tags to only persist the ones that exist in the database
                         existing_tags = db.query(Tag).filter(Tag.id.in_(tag_ids)).all()
@@ -388,8 +320,7 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
                         full_contact.addresses = full_contact.addresses
                         full_contact.fax_numbers = full_contact.fax_numbers
                         # Get tag IDs
-                        tags = full_contact.tags if hasattr(full_contact,
-                                                            'tags') else []
+                        tags = full_contact.tags if hasattr(full_contact, 'tags') else []
                         tag_ids = [tag.id for tag in tags]
                         # Clean up tags to only persist the ones that exist in the database
                         existing_tags = db.query(Tag).filter(Tag.id.in_(tag_ids)).all()
@@ -407,11 +338,7 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
 
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              item.id,
-                              e,
-                              {'offset': current_offset})
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
                     db.rollback()
                     continue
 
@@ -419,25 +346,17 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
             if pagination.get('next'):
                 next_offset = client._parse_next_url(pagination['next'])
                 if next_offset is not None:
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       next_offset)
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
                 else:
                     # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       current_offset + len(items))
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
             else:
                 # No more pages
-                checkpoint_manager.save_checkpoint(entity_type,
-                                                   current_offset + len(items),
-                                                   completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
                 break
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      0,
-                      e,
-                      {'offset': current_offset})
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
             db.rollback()
             raise
 
@@ -445,8 +364,7 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
 
 
 @audit_load_operation
-def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-              update: bool = False) -> tuple:
+def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load tags from Keap API into database."""
     entity_type = 'tags'
     total_records = 0
@@ -459,14 +377,11 @@ def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: Check
         logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
-        items, pagination = client.get_tags(limit=batch_size,
-                                            offset=current_offset)
+        items, pagination = client.get_tags(limit=batch_size, offset=current_offset)
 
         if not items:
             # Mark as completed when no more items
-            checkpoint_manager.save_checkpoint(entity_type,
-                                               current_offset,
-                                               completed=True)
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
         try:
@@ -481,11 +396,7 @@ def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: Check
                     success_count += 1
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              item.id,
-                              e,
-                              {'offset': current_offset})
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
                     db_session.rollback()
                     continue
 
@@ -493,25 +404,17 @@ def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: Check
             if pagination.get('next'):
                 next_offset = client._parse_next_url(pagination['next'])
                 if next_offset is not None:
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       next_offset)
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
                 else:
                     # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       current_offset + len(items))
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
             else:
                 # No more pages
-                checkpoint_manager.save_checkpoint(entity_type,
-                                                   current_offset + len(items),
-                                                   completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
                 break
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      0,
-                      e,
-                      {'offset': current_offset})
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
             db_session.rollback()
             raise
 
@@ -519,8 +422,7 @@ def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: Check
 
 
 @audit_load_operation
-def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-                       update: bool = False) -> Tuple[int, int, int]:
+def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> Tuple[int, int, int]:
     """Load all custom fields from all entity models.
     
     This function loads custom fields from all supported entity models:
@@ -574,9 +476,7 @@ def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: Chec
                         # Update existing field
                         for key, value in field.__dict__.items():
                             if not key.startswith('_'):
-                                setattr(existing_field,
-                                        key,
-                                        value)
+                                setattr(existing_field, key, value)
                         db.add(existing_field)
                     else:
                         # Add new field
@@ -592,8 +492,7 @@ def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: Chec
 
                 except SQLAlchemyError as e:
                     failed_count += 1
-                    logger.error(
-                        f"Database error processing custom field {field.id} from {model_entity_type}: {str(e)}")
+                    logger.error(f"Database error processing custom field {field.id} from {model_entity_type}: {str(e)}")
                     db.rollback()
                     continue
                 except Exception as e:
@@ -603,9 +502,7 @@ def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: Chec
                     continue
 
         # Mark as completed since we load all fields at once
-        checkpoint_manager.save_checkpoint(checkpoint_entity_type,
-                                           total_records,
-                                           completed=True)
+        checkpoint_manager.save_checkpoint(checkpoint_entity_type, total_records, completed=True)
 
         if failed_count > 0:
             logger.warning(f"Failed to process {failed_count} custom fields")
@@ -620,8 +517,7 @@ def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: Chec
 
 
 @audit_load_operation
-def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager,
-                       batch_size: int = 50, update: bool = False) -> tuple:
+def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load opportunities from Keap API into database."""
     entity_type = 'opportunities'
     total_records = 0
@@ -634,14 +530,11 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
         logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
-        items, pagination = client.get_opportunities(limit=batch_size,
-                                                     offset=current_offset)
+        items, pagination = client.get_opportunities(limit=batch_size, offset=current_offset)
 
         if not items:
             # Mark as completed when no more items
-            checkpoint_manager.save_checkpoint(entity_type,
-                                               current_offset,
-                                               completed=True)
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
         try:
@@ -662,9 +555,7 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
                         # Update existing opportunity's attributes
                         for key, value in full_opportunity.__dict__.items():
                             if not key.startswith('_'):
-                                setattr(existing_opportunity,
-                                        key,
-                                        value)
+                                setattr(existing_opportunity, key, value)
 
                         # Clear existing relationships
                         existing_opportunity.custom_field_values = []
@@ -689,11 +580,7 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
 
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              item.id,
-                              e,
-                              {'offset': current_offset})
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
                     db_session.rollback()
                     continue
 
@@ -701,25 +588,17 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
             if pagination.get('next'):
                 next_offset = client._parse_next_url(pagination['next'])
                 if next_offset is not None:
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       next_offset)
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
                 else:
                     # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       current_offset + len(items))
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
             else:
                 # No more pages
-                checkpoint_manager.save_checkpoint(entity_type,
-                                                   current_offset + len(items),
-                                                   completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
                 break
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      0,
-                      e,
-                      {'offset': current_offset})
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
             db_session.rollback()
             raise
 
@@ -727,8 +606,7 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
 
 
 @audit_load_operation
-def load_products(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-                  update: bool = False) -> tuple:
+def load_products(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load products from Keap API into database."""
     entity_type = 'products'
     total_records = 0
@@ -741,14 +619,11 @@ def load_products(client: KeapClient, db_session: Session, checkpoint_manager: C
         logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
-        items, pagination = client.get_products(limit=batch_size,
-                                                offset=current_offset)
+        items, pagination = client.get_products(limit=batch_size, offset=current_offset)
 
         if not items:
             # Mark as completed when no more items
-            checkpoint_manager.save_checkpoint(entity_type,
-                                               current_offset,
-                                               completed=True)
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
         try:
@@ -763,11 +638,7 @@ def load_products(client: KeapClient, db_session: Session, checkpoint_manager: C
                     success_count += 1
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              item.id,
-                              e,
-                              {'offset': current_offset})
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
                     db_session.rollback()
                     continue
 
@@ -775,25 +646,17 @@ def load_products(client: KeapClient, db_session: Session, checkpoint_manager: C
             if pagination.get('next'):
                 next_offset = client._parse_next_url(pagination['next'])
                 if next_offset is not None:
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       next_offset)
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
                 else:
                     # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       current_offset + len(items))
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
             else:
                 # No more pages
-                checkpoint_manager.save_checkpoint(entity_type,
-                                                   current_offset + len(items),
-                                                   completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
                 break
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      0,
-                      e,
-                      {'offset': current_offset})
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
             db_session.rollback()
             raise
 
@@ -801,8 +664,7 @@ def load_products(client: KeapClient, db_session: Session, checkpoint_manager: C
 
 
 @audit_load_operation
-def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-                update: bool = False) -> tuple:
+def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load orders from Keap API into database."""
     entity_type = 'orders'
     total_records = 0
@@ -815,14 +677,11 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
         logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
-        items, pagination = client.get_orders(limit=batch_size,
-                                              offset=current_offset)
+        items, pagination = client.get_orders(limit=batch_size, offset=current_offset)
 
         if not items:
             # Mark as completed when no more items
-            checkpoint_manager.save_checkpoint(entity_type,
-                                               current_offset,
-                                               completed=True)
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
         try:
@@ -843,9 +702,7 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
                         # Update existing order's attributes
                         for key, value in full_order.__dict__.items():
                             if not key.startswith('_'):
-                                setattr(existing_order,
-                                        key,
-                                        value)
+                                setattr(existing_order, key, value)
 
                         # Clear existing relationships
                         existing_order.items = []
@@ -872,11 +729,7 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
 
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              item.id,
-                              e,
-                              {'offset': current_offset})
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
                     db_session.rollback()
                     continue
 
@@ -884,25 +737,17 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
             if pagination.get('next'):
                 next_offset = client._parse_next_url(pagination['next'])
                 if next_offset is not None:
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       next_offset)
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
                 else:
                     # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       current_offset + len(items))
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
             else:
                 # No more pages
-                checkpoint_manager.save_checkpoint(entity_type,
-                                                   current_offset + len(items),
-                                                   completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
                 break
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      0,
-                      e,
-                      {'offset': current_offset})
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
             db_session.rollback()
             raise
 
@@ -910,8 +755,7 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
 
 
 @audit_load_operation
-def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-               update: bool = False) -> tuple:
+def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load tasks from Keap API into database."""
     entity_type = 'tasks'
     total_records = 0
@@ -924,14 +768,11 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
         logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
-        items, pagination = client.get_tasks(limit=batch_size,
-                                             offset=current_offset)
+        items, pagination = client.get_tasks(limit=batch_size, offset=current_offset)
 
         if not items:
             # Mark as completed when no more items
-            checkpoint_manager.save_checkpoint(entity_type,
-                                               current_offset,
-                                               completed=True)
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
         try:
@@ -952,9 +793,7 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
                         # Update existing task's attributes
                         for key, value in full_task.__dict__.items():
                             if not key.startswith('_'):
-                                setattr(existing_task,
-                                        key,
-                                        value)
+                                setattr(existing_task, key, value)
 
                         # Clear existing relationships
                         existing_task.contacts = []
@@ -977,11 +816,7 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
 
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              item.id,
-                              e,
-                              {'offset': current_offset})
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
                     db_session.rollback()
                     continue
 
@@ -989,25 +824,17 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
             if pagination.get('next'):
                 next_offset = client._parse_next_url(pagination['next'])
                 if next_offset is not None:
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       next_offset)
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
                 else:
                     # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       current_offset + len(items))
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
             else:
                 # No more pages
-                checkpoint_manager.save_checkpoint(entity_type,
-                                                   current_offset + len(items),
-                                                   completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
                 break
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      0,
-                      e,
-                      {'offset': current_offset})
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
             db_session.rollback()
             raise
 
@@ -1015,8 +842,7 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
 
 
 @audit_load_operation
-def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-               update: bool = False) -> tuple:
+def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load notes from Keap API into database."""
     entity_type = 'notes'
     total_records = 0
@@ -1029,14 +855,11 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
         logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
-        items, pagination = client.get_notes(limit=batch_size,
-                                             offset=current_offset)
+        items, pagination = client.get_notes(limit=batch_size, offset=current_offset)
 
         if not items:
             # Mark as completed when no more items
-            checkpoint_manager.save_checkpoint(entity_type,
-                                               current_offset,
-                                               completed=True)
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
         try:
@@ -1057,9 +880,7 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
                         # Update existing note's attributes
                         for key, value in full_note.__dict__.items():
                             if not key.startswith('_'):
-                                setattr(existing_note,
-                                        key,
-                                        value)
+                                setattr(existing_note, key, value)
 
                         # Clear existing relationships
                         existing_note.contacts = []
@@ -1082,11 +903,7 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
 
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              item.id,
-                              e,
-                              {'offset': current_offset})
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
                     db_session.rollback()
                     continue
 
@@ -1094,25 +911,17 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
             if pagination.get('next'):
                 next_offset = client._parse_next_url(pagination['next'])
                 if next_offset is not None:
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       next_offset)
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
                 else:
                     # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       current_offset + len(items))
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
             else:
                 # No more pages
-                checkpoint_manager.save_checkpoint(entity_type,
-                                                   current_offset + len(items),
-                                                   completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
                 break
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      0,
-                      e,
-                      {'offset': current_offset})
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
             db_session.rollback()
             raise
 
@@ -1120,8 +929,7 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
 
 
 @audit_load_operation
-def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-                   update: bool = False) -> tuple:
+def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load campaigns from Keap API into database."""
     entity_type = 'campaigns'
     total_records = 0
@@ -1134,14 +942,11 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
         logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
-        items, pagination = client.get_campaigns(limit=batch_size,
-                                                 offset=current_offset)
+        items, pagination = client.get_campaigns(limit=batch_size, offset=current_offset)
 
         if not items:
             # Mark as completed when no more items
-            checkpoint_manager.save_checkpoint(entity_type,
-                                               current_offset,
-                                               completed=True)
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
         try:
@@ -1162,9 +967,7 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
                         # Update existing campaign's attributes
                         for key, value in full_campaign.__dict__.items():
                             if not key.startswith('_'):
-                                setattr(existing_campaign,
-                                        key,
-                                        value)
+                                setattr(existing_campaign, key, value)
 
                         # Clear existing relationships
                         existing_campaign.sequences = []
@@ -1187,11 +990,7 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
 
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              item.id,
-                              e,
-                              {'offset': current_offset})
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
                     db_session.rollback()
                     continue
 
@@ -1199,25 +998,17 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
             if pagination.get('next'):
                 next_offset = client._parse_next_url(pagination['next'])
                 if next_offset is not None:
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       next_offset)
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
                 else:
                     # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       current_offset + len(items))
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
             else:
                 # No more pages
-                checkpoint_manager.save_checkpoint(entity_type,
-                                                   current_offset + len(items),
-                                                   completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
                 break
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      0,
-                      e,
-                      {'offset': current_offset})
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
             db_session.rollback()
             raise
 
@@ -1225,9 +1016,7 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
 
 
 @audit_load_operation
-def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager,
-                       batch_size: int = 50,
-                       update: bool = False) -> tuple:
+def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load subscriptions from Keap API into database."""
     entity_type = 'subscriptions'
     total_records = 0
@@ -1240,14 +1029,11 @@ def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manag
         logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
-        items, pagination = client.get_subscriptions(limit=batch_size,
-                                                     offset=current_offset)
+        items, pagination = client.get_subscriptions(limit=batch_size, offset=current_offset)
 
         if not items:
             # Mark as completed when no more items
-            checkpoint_manager.save_checkpoint(entity_type,
-                                               current_offset,
-                                               completed=True)
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
             break
 
         try:
@@ -1268,9 +1054,7 @@ def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manag
                         # Update existing subscription's attributes
                         for key, value in full_subscription.__dict__.items():
                             if not key.startswith('_'):
-                                setattr(existing_subscription,
-                                        key,
-                                        value)
+                                setattr(existing_subscription, key, value)
 
                         # Clear existing relationships
                         existing_subscription.contacts = []
@@ -1297,11 +1081,7 @@ def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manag
 
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              item.id,
-                              e,
-                              {'offset': current_offset})
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
                     db_session.rollback()
                     continue
 
@@ -1309,25 +1089,17 @@ def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manag
             if pagination.get('next'):
                 next_offset = client._parse_next_url(pagination['next'])
                 if next_offset is not None:
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       next_offset)
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
                 else:
                     # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       current_offset + len(items))
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
             else:
                 # No more pages
-                checkpoint_manager.save_checkpoint(entity_type,
-                                                   current_offset + len(items),
-                                                   completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
                 break
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      0,
-                      e,
-                      {'offset': current_offset})
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
             db_session.rollback()
             raise
 
@@ -1335,8 +1107,7 @@ def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manag
 
 
 @audit_load_operation
-def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50,
-                    update: bool = False) -> tuple:
+def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load all affiliates."""
     entity_type = 'affiliates'
     total_records = 0
@@ -1349,12 +1120,8 @@ def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: Checkpo
         logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Get query parameters including since timestamp if applicable
-        query_params = checkpoint_manager.get_query_params(entity_type,
-                                                           update)
-        query_params.update({
-            'limit': batch_size,
-            'offset': current_offset
-        })
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
+        query_params.update({'limit': batch_size, 'offset': current_offset})
 
         try:
             affiliates = client.get_affiliates(**query_params)
@@ -1362,9 +1129,7 @@ def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: Checkpo
 
             if not affiliates:
                 # Mark as completed when no more items
-                checkpoint_manager.save_checkpoint(entity_type,
-                                                   current_offset,
-                                                   completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
                 break
 
             for affiliate in affiliates:
@@ -1380,39 +1145,25 @@ def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: Checkpo
                     db.commit()
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              affiliate.id,
-                              e,
-                              {'affiliate_data': affiliate.__dict__})
+                    log_error(error_logger, entity_type, affiliate.id, e, {'affiliate_data': affiliate.__dict__})
                     db.rollback()
                     continue
 
             # Update offset based on next URL if available
-            if hasattr(client,
-                       '_parse_next_url') and hasattr(affiliates,
-                                                      'next'):
+            if hasattr(client, '_parse_next_url') and hasattr(affiliates, 'next'):
                 next_offset = client._parse_next_url(affiliates.next)
                 if next_offset is not None:
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       next_offset)
+                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
                 else:
                     # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type,
-                                                       current_offset + len(affiliates))
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(affiliates))
             else:
                 # No more pages
-                checkpoint_manager.save_checkpoint(entity_type,
-                                                   current_offset + len(affiliates),
-                                                   completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(affiliates), completed=True)
                 break
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      0,
-                      e,
-                      {'offset': current_offset})
+            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
             db.rollback()
             raise
 
@@ -1420,8 +1171,7 @@ def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: Checkpo
 
 
 @audit_load_operation
-def load_affiliate_commissions(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager,
-                               batch_size: int = 50, update: bool = False) -> tuple:
+def load_affiliate_commissions(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load all affiliate commissions."""
     entity_type = 'affiliate_commissions'
     total_records = 0
@@ -1435,15 +1185,11 @@ def load_affiliate_commissions(client: KeapClient, db: Session, checkpoint_manag
         logger.info(f"Processing commissions for affiliate ID: {affiliate_id}")
         try:
             # Get query parameters including since timestamp if applicable
-            query_params = checkpoint_manager.get_query_params(entity_type,
-                                                               update)
-            query_params.update({
-                'limit': batch_size,
-                'offset': 0  # Reset offset for each affiliate
-            })
+            query_params = checkpoint_manager.get_query_params(entity_type, update)
+            query_params.update({'limit': batch_size, 'offset': 0  # Reset offset for each affiliate
+                                 })
 
-            commissions = client.get_affiliate_commissions(affiliate_id,
-                                                           **query_params)
+            commissions = client.get_affiliate_commissions(affiliate_id, **query_params)
             logger.info(f"Received {len(commissions) if commissions else 0} commissions for affiliate {affiliate_id}")
 
             if not commissions:
@@ -1462,11 +1208,7 @@ def load_affiliate_commissions(client: KeapClient, db: Session, checkpoint_manag
                     db.commit()
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              commission.id,
-                              e,
-                              {'commission_data': commission.__dict__})
+                    log_error(error_logger, entity_type, commission.id, e, {'commission_data': commission.__dict__})
                     db.rollback()
                     continue
 
@@ -1476,24 +1218,17 @@ def load_affiliate_commissions(client: KeapClient, db: Session, checkpoint_manag
                 logger.warning(f"Failed to process {failed_count} commissions")
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      affiliate_id,
-                      e,
-                      {'affiliate_id': affiliate_id})
+            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
             continue
 
     # Mark as completed since we process all affiliates
-    checkpoint_manager.save_checkpoint(entity_type,
-                                       total_records,
-                                       completed=True)
+    checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
     logger.info(f"Loaded {total_records} commissions in total")
     return total_records, success_count, failed_count
 
 
 @audit_load_operation
-def load_affiliate_programs(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager,
-                            batch_size: int = 50, update: bool = False) -> tuple:
+def load_affiliate_programs(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load all affiliate programs."""
     entity_type = 'affiliate_programs'
     total_records = 0
@@ -1507,15 +1242,11 @@ def load_affiliate_programs(client: KeapClient, db: Session, checkpoint_manager:
         logger.info(f"Processing programs for affiliate ID: {affiliate_id}")
         try:
             # Get query parameters including since timestamp if applicable
-            query_params = checkpoint_manager.get_query_params(entity_type,
-                                                               update)
-            query_params.update({
-                'limit': batch_size,
-                'offset': 0  # Reset offset for each affiliate
-            })
+            query_params = checkpoint_manager.get_query_params(entity_type, update)
+            query_params.update({'limit': batch_size, 'offset': 0  # Reset offset for each affiliate
+                                 })
 
-            programs = client.get_affiliate_programs(affiliate_id,
-                                                     **query_params)
+            programs = client.get_affiliate_programs(affiliate_id, **query_params)
             logger.info(f"Received {len(programs) if programs else 0} programs for affiliate {affiliate_id}")
 
             if not programs:
@@ -1534,11 +1265,7 @@ def load_affiliate_programs(client: KeapClient, db: Session, checkpoint_manager:
                     db.commit()
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              program.id,
-                              e,
-                              {'program_data': program.__dict__})
+                    log_error(error_logger, entity_type, program.id, e, {'program_data': program.__dict__})
                     db.rollback()
                     continue
 
@@ -1548,24 +1275,17 @@ def load_affiliate_programs(client: KeapClient, db: Session, checkpoint_manager:
                 logger.warning(f"Failed to process {failed_count} programs")
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      affiliate_id,
-                      e,
-                      {'affiliate_id': affiliate_id})
+            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
             continue
 
     # Mark as completed since we process all affiliates
-    checkpoint_manager.save_checkpoint(entity_type,
-                                       total_records,
-                                       completed=True)
+    checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
     logger.info(f"Loaded {total_records} programs in total")
     return total_records, success_count, failed_count
 
 
 @audit_load_operation
-def load_affiliate_redirects(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager,
-                             batch_size: int = 50, update: bool = False) -> tuple:
+def load_affiliate_redirects(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load all affiliate redirects."""
     entity_type = 'affiliate_redirects'
     total_records = 0
@@ -1579,15 +1299,11 @@ def load_affiliate_redirects(client: KeapClient, db: Session, checkpoint_manager
         logger.info(f"Processing redirects for affiliate ID: {affiliate_id}")
         try:
             # Get query parameters including since timestamp if applicable
-            query_params = checkpoint_manager.get_query_params(entity_type,
-                                                               update)
-            query_params.update({
-                'limit': batch_size,
-                'offset': 0  # Reset offset for each affiliate
-            })
+            query_params = checkpoint_manager.get_query_params(entity_type, update)
+            query_params.update({'limit': batch_size, 'offset': 0  # Reset offset for each affiliate
+                                 })
 
-            redirects = client.get_affiliate_redirects(affiliate_id,
-                                                       **query_params)
+            redirects = client.get_affiliate_redirects(affiliate_id, **query_params)
             logger.info(f"Received {len(redirects) if redirects else 0} redirects for affiliate {affiliate_id}")
 
             if not redirects:
@@ -1606,11 +1322,7 @@ def load_affiliate_redirects(client: KeapClient, db: Session, checkpoint_manager
                     db.commit()
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              redirect.id,
-                              e,
-                              {'redirect_data': redirect.__dict__})
+                    log_error(error_logger, entity_type, redirect.id, e, {'redirect_data': redirect.__dict__})
                     db.rollback()
                     continue
 
@@ -1620,17 +1332,11 @@ def load_affiliate_redirects(client: KeapClient, db: Session, checkpoint_manager
                 logger.warning(f"Failed to process {failed_count} redirects")
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      affiliate_id,
-                      e,
-                      {'affiliate_id': affiliate_id})
+            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
             continue
 
     # Mark as completed since we process all affiliates
-    checkpoint_manager.save_checkpoint(entity_type,
-                                       total_records,
-                                       completed=True)
+    checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
     logger.info(f"Loaded {total_records} redirects in total")
     return total_records, success_count, failed_count
 
@@ -1664,33 +1370,22 @@ def load_affiliate_summaries(client: KeapClient, db: Session, checkpoint_manager
                 db.commit()
             except Exception as e:
                 failed_count += 1
-                log_error(error_logger,
-                          entity_type,
-                          summary.id,
-                          e,
-                          {'summary_data': summary.__dict__})
+                log_error(error_logger, entity_type, summary.id, e, {'summary_data': summary.__dict__})
                 db.rollback()
                 continue
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      affiliate_id,
-                      e,
-                      {'affiliate_id': affiliate_id})
+            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
             continue
 
     # Mark as completed since we process all affiliates
-    checkpoint_manager.save_checkpoint(entity_type,
-                                       total_records,
-                                       completed=True)
+    checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
     logger.info(f"Loaded {total_records} summaries in total")
     return total_records, success_count, failed_count
 
 
 @audit_load_operation
-def load_affiliate_clawbacks(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager,
-                             batch_size: int = 50, update: bool = False) -> tuple:
+def load_affiliate_clawbacks(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load all affiliate clawbacks."""
     entity_type = 'affiliate_clawbacks'
     total_records = 0
@@ -1704,15 +1399,11 @@ def load_affiliate_clawbacks(client: KeapClient, db: Session, checkpoint_manager
         logger.info(f"Processing clawbacks for affiliate ID: {affiliate_id}")
         try:
             # Get query parameters including since timestamp if applicable
-            query_params = checkpoint_manager.get_query_params(entity_type,
-                                                               update)
-            query_params.update({
-                'limit': batch_size,
-                'offset': 0  # Reset offset for each affiliate
-            })
+            query_params = checkpoint_manager.get_query_params(entity_type, update)
+            query_params.update({'limit': batch_size, 'offset': 0  # Reset offset for each affiliate
+                                 })
 
-            clawbacks = client.get_affiliate_clawbacks(affiliate_id,
-                                                       **query_params)
+            clawbacks = client.get_affiliate_clawbacks(affiliate_id, **query_params)
             logger.info(f"Received {len(clawbacks) if clawbacks else 0} clawbacks for affiliate {affiliate_id}")
 
             if not clawbacks:
@@ -1731,11 +1422,7 @@ def load_affiliate_clawbacks(client: KeapClient, db: Session, checkpoint_manager
                     db.commit()
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              clawback.id,
-                              e,
-                              {'clawback_data': clawback.__dict__})
+                    log_error(error_logger, entity_type, clawback.id, e, {'clawback_data': clawback.__dict__})
                     db.rollback()
                     continue
 
@@ -1745,24 +1432,17 @@ def load_affiliate_clawbacks(client: KeapClient, db: Session, checkpoint_manager
                 logger.warning(f"Failed to process {failed_count} clawbacks")
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      affiliate_id,
-                      e,
-                      {'affiliate_id': affiliate_id})
+            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
             continue
 
     # Mark as completed since we process all affiliates
-    checkpoint_manager.save_checkpoint(entity_type,
-                                       total_records,
-                                       completed=True)
+    checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
     logger.info(f"Loaded {total_records} clawbacks in total")
     return total_records, success_count, failed_count
 
 
 @audit_load_operation
-def load_affiliate_payments(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager,
-                            batch_size: int = 50, update: bool = False) -> tuple:
+def load_affiliate_payments(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load all affiliate payments."""
     entity_type = 'affiliate_payments'
     total_records = 0
@@ -1776,15 +1456,11 @@ def load_affiliate_payments(client: KeapClient, db: Session, checkpoint_manager:
         logger.info(f"Processing payments for affiliate ID: {affiliate_id}")
         try:
             # Get query parameters including since timestamp if applicable
-            query_params = checkpoint_manager.get_query_params(entity_type,
-                                                               update)
-            query_params.update({
-                'limit': batch_size,
-                'offset': 0  # Reset offset for each affiliate
-            })
+            query_params = checkpoint_manager.get_query_params(entity_type, update)
+            query_params.update({'limit': batch_size, 'offset': 0  # Reset offset for each affiliate
+                                 })
 
-            payments = client.get_affiliate_payments(affiliate_id,
-                                                     **query_params)
+            payments = client.get_affiliate_payments(affiliate_id, **query_params)
             logger.info(f"Received {len(payments) if payments else 0} payments for affiliate {affiliate_id}")
 
             if not payments:
@@ -1803,11 +1479,7 @@ def load_affiliate_payments(client: KeapClient, db: Session, checkpoint_manager:
                     db.commit()
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger,
-                              entity_type,
-                              payment.id,
-                              e,
-                              {'payment_data': payment.__dict__})
+                    log_error(error_logger, entity_type, payment.id, e, {'payment_data': payment.__dict__})
                     db.rollback()
                     continue
 
@@ -1817,17 +1489,11 @@ def load_affiliate_payments(client: KeapClient, db: Session, checkpoint_manager:
                 logger.warning(f"Failed to process {failed_count} payments")
 
         except Exception as e:
-            log_error(error_logger,
-                      entity_type,
-                      affiliate_id,
-                      e,
-                      {'affiliate_id': affiliate_id})
+            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
             continue
 
     # Mark as completed since we process all affiliates
-    checkpoint_manager.save_checkpoint(entity_type,
-                                       total_records,
-                                       completed=True)
+    checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
     logger.info(f"Loaded {total_records} payments in total")
     return total_records, success_count, failed_count
 
@@ -1860,142 +1526,92 @@ def main(update: bool = False):
     try:
         # Load data in a specific order to maintain referential integrity
         # First load custom fields since they are referenced by contacts
-        custom_fields_total, custom_fields_success, custom_fields_failed = load_custom_fields(client,
-                                                                                              db,
-                                                                                              checkpoint_manager,
-                                                                                              update=update)
+        custom_fields_total, custom_fields_success, custom_fields_failed = load_custom_fields(client, db, checkpoint_manager, update=update)
         total_records += custom_fields_total
         success_count += custom_fields_success
         failed_count += custom_fields_failed
 
         # Then load tags since they are referenced by contacts
-        tags_total, tags_success, tags_failed = load_tags(client,
-                                                          db,
-                                                          checkpoint_manager,
-                                                          update=update)
+        tags_total, tags_success, tags_failed = load_tags(client, db, checkpoint_manager, update=update)
         total_records += tags_total
         success_count += tags_success
         failed_count += tags_failed
 
         # Load products before orders and subscriptions
-        products_total, products_success, products_failed = load_products(client,
-                                                                          db,
-                                                                          checkpoint_manager,
-                                                                          update=update)
+        products_total, products_success, products_failed = load_products(client, db, checkpoint_manager, update=update)
         total_records += products_total
         success_count += products_success
         failed_count += products_failed
 
         # Then load contacts and their related data
-        contacts_total, contacts_success, contacts_failed = load_contacts(client,
-                                                                          db,
-                                                                          checkpoint_manager,
-                                                                          update=update)
+        contacts_total, contacts_success, contacts_failed = load_contacts(client, db, checkpoint_manager, update=update)
         total_records += contacts_total
         success_count += contacts_success
         failed_count += contacts_failed
 
         # Load remaining data
-        opportunities_total, opportunities_success, opportunities_failed = load_opportunities(client,
-                                                                                              db,
-                                                                                              checkpoint_manager,
-                                                                                              update=update)
+        opportunities_total, opportunities_success, opportunities_failed = load_opportunities(client, db, checkpoint_manager, update=update)
         total_records += opportunities_total
         success_count += opportunities_success
         failed_count += opportunities_failed
 
-        orders_total, orders_success, orders_failed = load_orders(client,
-                                                                  db,
-                                                                  checkpoint_manager,
-                                                                  update=update)
+        orders_total, orders_success, orders_failed = load_orders(client, db, checkpoint_manager, update=update)
         total_records += orders_total
         success_count += orders_success
         failed_count += orders_failed
 
-        tasks_total, tasks_success, tasks_failed = load_tasks(client,
-                                                              db,
-                                                              checkpoint_manager,
-                                                              update=update)
+        tasks_total, tasks_success, tasks_failed = load_tasks(client, db, checkpoint_manager, update=update)
         total_records += tasks_total
         success_count += tasks_success
         failed_count += tasks_failed
 
-        notes_total, notes_success, notes_failed = load_notes(client,
-                                                              db,
-                                                              checkpoint_manager,
-                                                              update=update)
+        notes_total, notes_success, notes_failed = load_notes(client, db, checkpoint_manager, update=update)
         total_records += notes_total
         success_count += notes_success
         failed_count += notes_failed
 
-        campaigns_total, campaigns_success, campaigns_failed = load_campaigns(client,
-                                                                              db,
-                                                                              checkpoint_manager,
-                                                                              update=update)
+        campaigns_total, campaigns_success, campaigns_failed = load_campaigns(client, db, checkpoint_manager, update=update)
         total_records += campaigns_total
         success_count += campaigns_success
         failed_count += campaigns_failed
 
-        subscriptions_total, subscriptions_success, subscriptions_failed = load_subscriptions(client,
-                                                                                              db,
-                                                                                              checkpoint_manager,
-                                                                                              update=update)
+        subscriptions_total, subscriptions_success, subscriptions_failed = load_subscriptions(client, db, checkpoint_manager, update=update)
         total_records += subscriptions_total
         success_count += subscriptions_success
         failed_count += subscriptions_failed
 
         # Load affiliate data after contacts are loaded
-        affiliates_total, affiliates_success, affiliates_failed = load_affiliates(client,
-                                                                                  db,
-                                                                                  checkpoint_manager,
-                                                                                  update=update)
+        affiliates_total, affiliates_success, affiliates_failed = load_affiliates(client, db, checkpoint_manager, update=update)
         total_records += affiliates_total
         success_count += affiliates_success
         failed_count += affiliates_failed
 
-        commissions_total, commissions_success, commissions_failed = load_affiliate_commissions(client,
-                                                                                                db,
-                                                                                                checkpoint_manager,
-                                                                                                update=update)
+        commissions_total, commissions_success, commissions_failed = load_affiliate_commissions(client, db, checkpoint_manager, update=update)
         total_records += commissions_total
         success_count += commissions_success
         failed_count += commissions_failed
 
-        programs_total, programs_success, programs_failed = load_affiliate_programs(client,
-                                                                                    db,
-                                                                                    checkpoint_manager,
-                                                                                    update=update)
+        programs_total, programs_success, programs_failed = load_affiliate_programs(client, db, checkpoint_manager, update=update)
         total_records += programs_total
         success_count += programs_success
         failed_count += programs_failed
 
-        redirects_total, redirects_success, redirects_failed = load_affiliate_redirects(client,
-                                                                                        db,
-                                                                                        checkpoint_manager,
-                                                                                        update=update)
+        redirects_total, redirects_success, redirects_failed = load_affiliate_redirects(client, db, checkpoint_manager, update=update)
         total_records += redirects_total
         success_count += redirects_success
         failed_count += redirects_failed
 
-        summaries_total, summaries_success, summaries_failed = load_affiliate_summaries(client,
-                                                                                        db,
-                                                                                        checkpoint_manager)
+        summaries_total, summaries_success, summaries_failed = load_affiliate_summaries(client, db, checkpoint_manager)
         total_records += summaries_total
         success_count += summaries_success
         failed_count += summaries_failed
 
-        clawbacks_total, clawbacks_success, clawbacks_failed = load_affiliate_clawbacks(client,
-                                                                                        db,
-                                                                                        checkpoint_manager,
-                                                                                        update=update)
+        clawbacks_total, clawbacks_success, clawbacks_failed = load_affiliate_clawbacks(client, db, checkpoint_manager, update=update)
         total_records += clawbacks_total
         success_count += clawbacks_success
         failed_count += clawbacks_failed
 
-        payments_total, payments_success, payments_failed = load_affiliate_payments(client,
-                                                                                    db,
-                                                                                    checkpoint_manager,
-                                                                                    update=update)
+        payments_total, payments_success, payments_failed = load_affiliate_payments(client, db, checkpoint_manager, update=update)
         total_records += payments_total
         success_count += payments_success
         failed_count += payments_failed
@@ -2019,23 +1635,14 @@ def main(update: bool = False):
         logger.info(f"Duration: {duration_str}")
 
         # Save final audit log
-        checkpoint_manager.audit_logger.log_audit(
-            entity_type='complete_load',
-            start_time=start_time,
-            end_time=end_time,
-            total_records=total_records,
-            success=success_count,
-            failed=failed_count
-        )
+        checkpoint_manager.audit_logger.log_audit(entity_type='complete_load', start_time=start_time, end_time=end_time, total_records=total_records, success=success_count, failed=failed_count)
 
         db.close()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Load data from Keap API')
-    parser.add_argument('--update',
-                        action='store_true',
-                        help='Resume from existing checkpoints')
+    parser.add_argument('--update', action='store_true', help='Resume from existing checkpoints')
     args = parser.parse_args()
 
     main(update=args.update)

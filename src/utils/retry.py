@@ -2,17 +2,15 @@ import logging
 import random
 import time
 from functools import wraps
-from typing import Callable, \
-    Tuple, \
-    Type
+from typing import Callable, Tuple, Type
 
 from ..api.exceptions import KeapRateLimitError
 
 logger = logging.getLogger(__name__)
 
 
-def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay: float = 60.0, exponential_base: float = 2.0, jitter: bool = True,
-                        exceptions: Tuple[Type[Exception], ...] = (KeapRateLimitError,)) -> Callable:
+def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay: float = 60.0, exponential_base: float = 2.0, jitter: bool = True, exceptions: Tuple[Type[Exception], ...] = (
+        KeapRateLimitError,)) -> Callable:
     """
     Decorator that implements exponential backoff with jitter for retrying operations
     
@@ -35,8 +33,7 @@ def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay
 
             for attempt in range(max_retries + 1):
                 try:
-                    return func(*args,
-                                **kwargs)
+                    return func(*args, **kwargs)
                 except exceptions as e:
                     last_exception = e
 
@@ -46,8 +43,7 @@ def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay
                         raise
 
                     # Calculate delay with exponential backoff
-                    delay = min(base_delay * (exponential_base ** attempt),
-                                max_delay)
+                    delay = min(base_delay * (exponential_base ** attempt), max_delay)
 
                     # Add jitter if enabled
                     if jitter:

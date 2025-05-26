@@ -2,8 +2,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from src.models.models import Contact, \
-    Note
+from src.models.models import Contact, Note
 
 
 class NoteTransformer:

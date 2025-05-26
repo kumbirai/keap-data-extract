@@ -2,9 +2,7 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Any, \
-    Dict, \
-    Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -12,15 +10,13 @@ logger = logging.getLogger(__name__)
 class ErrorLogger:
     def __init__(self, error_log_dir: str = 'logs/errors'):
         self.error_log_dir = error_log_dir
-        os.makedirs(error_log_dir,
-                    exist_ok=True)
+        os.makedirs(error_log_dir, exist_ok=True)
         self.current_log_file = self._get_log_file_path()
 
     def _get_log_file_path(self) -> str:
         """Get the path for today's error log file."""
         date_str = datetime.now().strftime('%Y%m%d')
-        return os.path.join(self.error_log_dir,
-                            f'data_load_errors_{date_str}.json')
+        return os.path.join(self.error_log_dir, f'data_load_errors_{date_str}.json')
 
     def log_error(self, entity_type: str, entity_id: int, error_type: str, error_message: str, additional_data: Optional[Dict[str, Any]] = None) -> None:
         """
@@ -40,8 +36,7 @@ class ErrorLogger:
             # Read existing errors if file exists
             existing_errors = []
             if os.path.exists(self.current_log_file):
-                with open(self.current_log_file,
-                          'r') as f:
+                with open(self.current_log_file, 'r') as f:
                     try:
                         existing_errors = json.load(f)
                     except json.JSONDecodeError:
@@ -51,11 +46,8 @@ class ErrorLogger:
             existing_errors.append(error_entry)
 
             # Write back to file
-            with open(self.current_log_file,
-                      'w') as f:
-                json.dump(existing_errors,
-                          f,
-                          indent=2)
+            with open(self.current_log_file, 'w') as f:
+                json.dump(existing_errors, f, indent=2)
 
         except Exception as e:
             logger.error(f"Failed to write to error log file: {str(e)}")
@@ -64,8 +56,7 @@ class ErrorLogger:
         """Retrieve all errors or filter by entity type."""
         try:
             if os.path.exists(self.current_log_file):
-                with open(self.current_log_file,
-                          'r') as f:
+                with open(self.current_log_file, 'r') as f:
                     errors = json.load(f)
                     if entity_type:
                         return [e for e in errors if e['entity_type'] == entity_type]

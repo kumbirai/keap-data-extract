@@ -1,17 +1,11 @@
 import logging
 import os
-from typing import Any, \
-    Dict, \
-    Optional
+from typing import Any, Dict, Optional
 
 import requests
 from dotenv import load_dotenv
 
-from .exceptions import (KeapAPIError,
-                         KeapAuthenticationError,
-                         KeapNotFoundError,
-                         KeapRateLimitError,
-                         KeapServerError)
+from .exceptions import (KeapAPIError, KeapAuthenticationError, KeapNotFoundError, KeapRateLimitError, KeapServerError)
 from ..utils.retry import exponential_backoff
 
 # Get logger for this module
@@ -63,8 +57,7 @@ class KeapBaseClient:
                              'x-keap-product-quota-interval': response.headers.get('x-keap-product-quota-interval'),
                              'x-keap-product-quota-available': response.headers.get('x-keap-product-quota-available'), 'x-keap-product-quota-used': response.headers.get('x-keap-product-quota-used'),
                              'x-keap-product-quota-expiry-time': response.headers.get('x-keap-product-quota-expiry-time')}
-            logger.debug("Quota Headers: %s",
-                         quota_headers)
+            logger.debug("Quota Headers: %s", quota_headers)
 
             return data
         except requests.exceptions.HTTPError as e:
@@ -97,12 +90,7 @@ class KeapBaseClient:
             logger.error(f"Request Error: {str(e)}")
             raise KeapAPIError(f"Request failed: {str(e)}")
 
-    @exponential_backoff(max_retries=5,
-                         base_delay=1.0,
-                         max_delay=60.0,
-                         exponential_base=2.0,
-                         jitter=True,
-                         exceptions=(KeapRateLimitError, KeapServerError))
+    @exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
     def _make_request(self, method: str, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict:
         """
         Make an HTTP request to the Keap API with retry logic for rate limits
@@ -122,9 +110,7 @@ class KeapBaseClient:
 
         try:
             logger.debug(f"Making {method} request to {url}")
-            response = self.session.request(method=method,
-                                            url=url,
-                                            params=params)
+            response = self.session.request(method=method, url=url, params=params)
             return self._handle_response(response)
         except Exception as e:
             logger.error(f"Request failed: {str(e)}")
@@ -144,12 +130,9 @@ class KeapBaseClient:
         Raises:
             KeapAPIError: If the request fails after all retries
         """
-        return self._make_request('GET',
-                                  endpoint,
-                                  params)
+        return self._make_request('GET', endpoint, params)
 
     def __del__(self):
         """Cleanup session on object destruction"""
-        if hasattr(self,
-                   'session'):
+        if hasattr(self, 'session'):
             self.session.close()

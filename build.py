@@ -3,50 +3,37 @@ import sys
 import subprocess
 from pathlib import Path
 
+
 def build_executable():
     """
     Build the executable using PyInstaller
     """
     # Get the project root directory
     project_root = Path(__file__).parent.absolute()
-    
+
     # Create dist directory if it doesn't exist
     dist_dir = project_root / "dist"
     dist_dir.mkdir(exist_ok=True)
-    
+
     # Create build directory if it doesn't exist
     build_dir = project_root / "build"
     build_dir.mkdir(exist_ok=True)
-    
+
     # Determine the correct path separator for the platform
     separator = ";" if sys.platform == "win32" else ":"
-    
+
     # PyInstaller command
-    pyinstaller_cmd = [
-        "pyinstaller",
-        "--name=keap_data_extract",
-        "--onefile",  # Create a single executable
+    pyinstaller_cmd = ["pyinstaller", "--name=keap_data_extract", "--onefile",  # Create a single executable
         "--noconsole",  # Don't show console window but still allow arguments
         f"--add-data=src{separator}src",  # Include source files
-        "--hidden-import=sqlalchemy",
-        "--hidden-import=psycopg2",
-        "--hidden-import=alembic",
-        "--hidden-import=dotenv",
-        "--hidden-import=requests",
-        "--hidden-import=logging",
-        "--hidden-import=json",
-        "--hidden-import=datetime",
-        "--hidden-import=typing",
-        "--hidden-import=urllib.parse",
-        "--hidden-import=sqlalchemy.orm",
-        "--hidden-import=sqlalchemy.exc",
-        "--hidden-import=alembic",
+        "--hidden-import=sqlalchemy", "--hidden-import=psycopg2", "--hidden-import=alembic", "--hidden-import=dotenv", "--hidden-import=requests", "--hidden-import=logging", "--hidden-import=json",
+        "--hidden-import=datetime", "--hidden-import=typing", "--hidden-import=urllib.parse", "--hidden-import=sqlalchemy.orm", "--hidden-import=sqlalchemy.exc", "--hidden-import=alembic",
         "--add-data=.env{separator}.",  # Include .env file
         "--add-data=logs{separator}logs",  # Include logs directory
         "--add-data=checkpoints{separator}checkpoints",  # Include checkpoints directory
         "src/__main__.py"  # Main entry point
     ]
-    
+
     # Run PyInstaller
     try:
         subprocess.run(pyinstaller_cmd, check=True)
@@ -57,5 +44,6 @@ def build_executable():
         print(f"Build failed with error: {e}")
         sys.exit(1)
 
+
 if __name__ == "__main__":
-    build_executable() 
+    build_executable()

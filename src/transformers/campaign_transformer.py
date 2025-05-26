@@ -2,8 +2,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from src.models.models import Campaign, \
-    CampaignSequence
+from src.models.models import Campaign, CampaignSequence
 
 
 class CampaignTransformer:
@@ -27,9 +26,7 @@ class CampaignTransformer:
             # Clear existing sequence relationships
             campaign.sequences = []
             for seq_data in data['sequences']:
-                sequence = CampaignSequence(id=seq_data['id'],
-                                            name=seq_data.get('name'),
-                                            status=seq_data.get('status'))
+                sequence = CampaignSequence(id=seq_data['id'], name=seq_data.get('name'), status=seq_data.get('status'))
                 db.add(sequence)
                 campaign.sequences.append(sequence)
 

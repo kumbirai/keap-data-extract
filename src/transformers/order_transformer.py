@@ -2,10 +2,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from src.models.models import Contact, \
-    Order, \
-    OrderItem, \
-    Product
+from src.models.models import Contact, Order, OrderItem, Product
 
 
 class OrderTransformer:
@@ -39,9 +36,7 @@ class OrderTransformer:
             order.items = []
             for item_data in data['items']:
                 # Create or update order item
-                order_item = OrderItem(id=item_data['id'],
-                                       quantity=item_data.get('quantity'),
-                                       price=item_data.get('price'))
+                order_item = OrderItem(id=item_data['id'], quantity=item_data.get('quantity'), price=item_data.get('price'))
                 db.add(order_item)
                 order.items.append(order_item)
 

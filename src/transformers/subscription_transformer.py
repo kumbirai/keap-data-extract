@@ -2,9 +2,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from src.models.models import Contact, \
-    Product, \
-    Subscription
+from src.models.models import Contact, Product, Subscription
 
 
 class SubscriptionTransformer:

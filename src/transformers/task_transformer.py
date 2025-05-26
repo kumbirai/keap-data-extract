@@ -2,8 +2,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from src.models.models import Contact, \
-    Task
+from src.models.models import Contact, Task
 
 
 class TaskTransformer:
