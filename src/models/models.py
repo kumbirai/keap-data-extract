@@ -366,9 +366,14 @@ class Order(Base):
 
     id = Column(Integer, primary_key=True)
     contact_id = Column(Integer, ForeignKey('contacts.id'))
+    order_number = Column(String(50))  # Added from API spec
     order_date = Column(DateTime, nullable=False)
     order_status = Column(String(50))
     order_total = Column(Float)
+    order_type = Column(String(50))  # Added from API spec
+    payment_plan_id = Column(Integer)  # Added from API spec
+    payment_type = Column(String(50))  # Added from API spec
+    subscription_plan_id = Column(Integer)  # Added from API spec
     created_at = Column(DateTime, default=utc_now)
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
@@ -385,7 +390,10 @@ class OrderItem(Base):
     product_id = Column(Integer, ForeignKey('products.id'))
     quantity = Column(Integer, nullable=False)
     price = Column(Float, nullable=False)
+    description = Column(Text)  # Added from API spec
+    subscription_plan_id = Column(Integer)  # Added from API spec
     created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)  # Added from API spec
 
     # Relationships
     order = relationship("Order", back_populates="items")

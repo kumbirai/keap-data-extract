@@ -118,9 +118,14 @@ CREATE TABLE products (
 CREATE TABLE orders (
     id SERIAL PRIMARY KEY,
     contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+    order_number VARCHAR(50),
     order_date TIMESTAMP WITH TIME ZONE NOT NULL,
     order_status VARCHAR(50),
     order_total FLOAT,
+    order_type VARCHAR(50),
+    payment_plan_id INTEGER,
+    payment_type VARCHAR(50),
+    subscription_plan_id INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -132,7 +137,10 @@ CREATE TABLE order_items (
     product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
     quantity INTEGER NOT NULL,
     price FLOAT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    description TEXT,
+    subscription_plan_id INTEGER,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Opportunities table

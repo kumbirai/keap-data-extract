@@ -176,7 +176,7 @@ class KeapClient(KeapBaseClient):
             - List of Opportunity objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
+        params = {'limit': limit, 'offset': offset, 'order': 'date_created'}
         if contact_id:
             params['contact_id'] = contact_id
         response = self.get('opportunities', params)
@@ -221,7 +221,7 @@ class KeapClient(KeapBaseClient):
             - List of Order objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
+        params = {'limit': limit, 'offset': offset, 'order': 'order_date'}
         if contact_id:
             params['contact_id'] = contact_id
         response = self.get('orders', params)
@@ -353,7 +353,7 @@ class KeapClient(KeapBaseClient):
 
     def get_affiliates(self, limit: int = 50, offset: int = 0) -> List[Affiliate]:
         """Get a list of affiliates."""
-        params = {'limit': limit, 'offset': offset}
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get('affiliates', params)
         return transform_list_response(response, transform_affiliate)
 
@@ -365,19 +365,19 @@ class KeapClient(KeapBaseClient):
     def get_affiliate_commissions(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[
         AffiliateCommission]:
         """Get commissions for an affiliate."""
-        params = {'limit': limit, 'offset': offset}
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get(f'affiliates/{affiliate_id}/commissions', params)
         return transform_list_response(response, transform_affiliate_commission)
 
     def get_affiliate_programs(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[AffiliateProgram]:
         """Get programs for an affiliate."""
-        params = {'limit': limit, 'offset': offset}
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get(f'affiliates/{affiliate_id}/programs', params)
         return transform_list_response(response, transform_affiliate_program)
 
     def get_affiliate_redirects(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[AffiliateRedirect]:
         """Get redirects for an affiliate."""
-        params = {'limit': limit, 'offset': offset}
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get(f'affiliates/{affiliate_id}/redirects', params)
         return transform_list_response(response, transform_affiliate_redirect)
 
@@ -388,13 +388,13 @@ class KeapClient(KeapBaseClient):
 
     def get_affiliate_clawbacks(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[AffiliateClawback]:
         """Get clawbacks for an affiliate."""
-        params = {'limit': limit, 'offset': offset}
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get(f'affiliates/{affiliate_id}/clawbacks', params)
         return transform_list_response(response, transform_affiliate_clawback)
 
     def get_affiliate_payments(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[AffiliatePayment]:
         """Get payments for an affiliate."""
-        params = {'limit': limit, 'offset': offset}
+        params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get(f'affiliates/{affiliate_id}/payments', params)
         return transform_list_response(response, transform_affiliate_payment)
 
