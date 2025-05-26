@@ -1315,11 +1315,23 @@ def main(update: bool = False):
 
     try:
         # Load data in a specific order to maintain referential integrity
-        # First load tags since they are referenced by contacts
+        # First load custom fields since they are referenced by contacts
+        custom_fields_total, custom_fields_success, custom_fields_failed = load_custom_fields(client, db, checkpoint_manager, update=update)
+        total_records += custom_fields_total
+        success_count += custom_fields_success
+        failed_count += custom_fields_failed
+
+        # Then load tags since they are referenced by contacts
         tags_total, tags_success, tags_failed = load_tags(client, db, checkpoint_manager, update=update)
         total_records += tags_total
         success_count += tags_success
         failed_count += tags_failed
+
+        # Load products before orders and subscriptions
+        products_total, products_success, products_failed = load_products(client, db, checkpoint_manager, update=update)
+        total_records += products_total
+        success_count += products_success
+        failed_count += products_failed
 
         # Then load contacts and their related data
         contacts_total, contacts_success, contacts_failed = load_contacts(client, db, checkpoint_manager, update=update)
@@ -1328,11 +1340,6 @@ def main(update: bool = False):
         failed_count += contacts_failed
 
         # Load remaining data
-        products_total, products_success, products_failed = load_products(client, db, checkpoint_manager, update=update)
-        total_records += products_total
-        success_count += products_success
-        failed_count += products_failed
-
         opportunities_total, opportunities_success, opportunities_failed = load_opportunities(client, db, checkpoint_manager, update=update)
         total_records += opportunities_total
         success_count += opportunities_success
