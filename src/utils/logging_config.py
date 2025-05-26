@@ -4,11 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-def setup_logging(
-        log_level: int = logging.INFO,
-        log_dir: str = "logs",
-        app_name: str = "keap_data_extract"
-) -> None:
+def setup_logging(log_level: int = logging.INFO, log_dir: str = "logs", app_name: str = "keap_data_extract") -> None:
     """
     Configure application-wide logging
     
@@ -19,27 +15,22 @@ def setup_logging(
     """
     # Create logs directory if it doesn't exist
     log_path = Path(log_dir)
-    log_path.mkdir(parents=True, exist_ok=True)
+    log_path.mkdir(parents=True,
+                   exist_ok=True)
 
     # Generate log filename with timestamp
     timestamp = datetime.now().strftime("%Y%m%d")
     log_file = log_path / f"{app_name}_{timestamp}.log"
 
     # Create formatters
-    file_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    console_formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s'
-    )
+    file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
     # Create and configure file handler
-    file_handler = logging.handlers.RotatingFileHandler(
-        filename=log_file,
-        maxBytes=20 * 1024 * 1024,  # 20MB
-        backupCount=10,
-        encoding='utf-8'
-    )
+    file_handler = logging.handlers.RotatingFileHandler(filename=log_file,
+                                                        maxBytes=20 * 1024 * 1024,  # 20MB
+                                                        backupCount=10,
+                                                        encoding='utf-8')
     file_handler.setFormatter(file_formatter)
     file_handler.setLevel(log_level)
 

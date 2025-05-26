@@ -26,12 +26,24 @@ def build_executable():
         "pyinstaller",
         "--name=keap_data_extract",
         "--onefile",  # Create a single executable
-        "--windowed",  # Don't show console window
+        "--noconsole",  # Don't show console window but still allow arguments
         f"--add-data=src{separator}src",  # Include source files
         "--hidden-import=sqlalchemy",
         "--hidden-import=psycopg2",
         "--hidden-import=alembic",
         "--hidden-import=dotenv",
+        "--hidden-import=requests",
+        "--hidden-import=logging",
+        "--hidden-import=json",
+        "--hidden-import=datetime",
+        "--hidden-import=typing",
+        "--hidden-import=urllib.parse",
+        "--hidden-import=sqlalchemy.orm",
+        "--hidden-import=sqlalchemy.exc",
+        "--hidden-import=alembic",
+        "--add-data=.env{separator}.",  # Include .env file
+        "--add-data=logs{separator}logs",  # Include logs directory
+        "--add-data=checkpoints{separator}checkpoints",  # Include checkpoints directory
         "src/__main__.py"  # Main entry point
     ]
     

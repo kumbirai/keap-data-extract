@@ -4,7 +4,7 @@ A Python-based data extraction and management tool for Keap (formerly Infusionso
 
 ## Description
 
-This project provides tools for extracting and managing data from Keap's API, storing it in a PostgreSQL database, and maintaining data synchronization.
+This project provides tools for extracting and managing data from Keap's API, storing it in a PostgreSQL database, and maintaining data synchronization. It's designed to help businesses efficiently manage their Keap data and keep it synchronized with their local database.
 
 ## Features
 
@@ -13,12 +13,15 @@ This project provides tools for extracting and managing data from Keap's API, st
 - Automated data synchronization
 - Logging and checkpoint management
 - Database migration support
+- Error handling and retry mechanisms
+- Data validation and integrity checks
 
 ## Prerequisites
 
 - Python 3.8 or higher
-- PostgreSQL database
+- PostgreSQL database (version 12 or higher)
 - Keap API credentials
+- Git
 
 ## Installation
 
@@ -46,9 +49,9 @@ Create a `.env` file in the root directory with the following variables:
 KEAP_API_KEY=your_api_key
 
 # Database connection settings
-DB_HOST=localhost        # Database host address
+DB_HOST=localhost       # Database host address
 DB_PORT=5432            # PostgreSQL default port
-DB_NAME=keap_data       # Name of your database
+DB_NAME=keap_db         # Name of your database
 DB_USER=postgres        # Database username
 DB_PASSWORD=password    # Database password
 ```
@@ -58,12 +61,19 @@ DB_PASSWORD=password    # Database password
 ```
 keap-data-extract/
 ├── src/               # Source code
-├── database/          # Database related files
-├── docs/             # Documentation
-├── logs/             # Log files
-├── checkpoints/      # Data synchronization checkpoints
-├── requirements.txt  # Project dependencies
-└── .env             # Environment variables (create this file)
+│   ├── api/          # Keap API integration
+│   ├── models/       # Database models
+│   ├── sync/         # Data synchronization logic
+│   └── utils/        # Utility functions
+├── database/         # Database related files
+│   ├── migrations/   # Alembic migration files
+│   └── schemas/      # Database schemas
+├── docs/            # Documentation
+├── logs/            # Log files
+├── checkpoints/     # Data synchronization checkpoints
+├── tests/           # Test files
+├── requirements.txt # Project dependencies
+└── .env            # Environment variables (create this file)
 ```
 
 ## Usage
@@ -75,6 +85,10 @@ keap-data-extract/
 This project uses Alembic for database migrations. To run migrations:
 
 ```bash
+# Create a new migration
+alembic revision --autogenerate -m "description"
+
+# Apply migrations
 alembic upgrade head
 ```
 

@@ -1,16 +1,40 @@
 import logging
-from datetime import datetime, timezone
-from typing import Dict, List, Any, Tuple
+from datetime import datetime, \
+    timezone
+from typing import Dict, \
+    List, \
+    Any, \
+    Tuple
 
-from ..models.models import (
-    Contact, EmailAddress, PhoneNumber, Address, Tag, CustomField,
-    Opportunity, Product, Order, OrderItem,
-    Task, Note, Campaign, CampaignSequence, Subscription,
-    AccountProfile, Affiliate, AffiliateCommission, AffiliateProgram,
-    AffiliateRedirect, AffiliateSummary, AffiliateClawback, AffiliatePayment,
-    FaxNumber, BusinessGoal, AffiliateRedirectProgram, CustomFieldMetaData,
-    ContactCustomFieldValue, AddressType
-)
+from ..models.models import (Contact,
+                             EmailAddress,
+                             PhoneNumber,
+                             Address,
+                             Tag,
+                             CustomField,
+                             Opportunity,
+                             Product,
+                             Order,
+                             OrderItem,
+                             Task,
+                             Note,
+                             Campaign,
+                             CampaignSequence,
+                             Subscription,
+                             AccountProfile,
+                             Affiliate,
+                             AffiliateCommission,
+                             AffiliateProgram,
+                             AffiliateRedirect,
+                             AffiliateSummary,
+                             AffiliateClawback,
+                             AffiliatePayment,
+                             FaxNumber,
+                             BusinessGoal,
+                             AffiliateRedirectProgram,
+                             CustomFieldMetaData,
+                             ContactCustomFieldValue,
+                             AddressType)
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +48,8 @@ def transform_contact(api_data: Dict[str, Any]) -> Contact:
         middle_name=api_data.get('middle_name'),
         company_name=api_data.get('company'),  # API uses 'company' instead of 'company_name'
         job_title=api_data.get('job_title'),
-        email_opted_in=api_data.get('email_opted_in', False),
+        email_opted_in=api_data.get('email_opted_in',
+                                    False),
         email_status=api_data.get('email_status'),
         score_value=api_data.get('ScoreValue'),  # API uses 'ScoreValue' instead of 'score_value'
         owner_id=api_data.get('owner_id'),
@@ -69,8 +94,10 @@ def transform_phone_number(api_data: Dict[str, Any]) -> PhoneNumber:
 
 def transform_address(api_data: Dict[str, Any]) -> Address:
     """Transform API address data to Address model instance."""
-    field = api_data.get('field', 'OTHER')
-    if isinstance(field, str):
+    field = api_data.get('field',
+                         'OTHER')
+    if isinstance(field,
+                  str):
         field = AddressType[field.upper()]
 
     return Address(
@@ -90,7 +117,8 @@ def transform_address(api_data: Dict[str, Any]) -> Address:
 def transform_tag(api_data: Dict[str, Any]) -> Tag:
     """Transform API tag data to Tag model instance."""
     category = api_data.get('category')
-    if isinstance(category, dict):
+    if isinstance(category,
+                  dict):
         category = category.get('name')
 
     # Validate that name exists
@@ -132,9 +160,12 @@ def transform_custom_field(field_name: str, field_def: Dict[str, Any]) -> Custom
             label=metadata.get('label'),
             description=metadata.get('description'),
             data_type=metadata.get('data_type'),
-            is_required=metadata.get('is_required', False),
-            is_read_only=metadata.get('is_read_only', False),
-            is_visible=metadata.get('is_visible', True),
+            is_required=metadata.get('is_required',
+                                     False),
+            is_read_only=metadata.get('is_read_only',
+                                      False),
+            is_visible=metadata.get('is_visible',
+                                    True),
             created_at=datetime.now(timezone.utc)
         )
 
@@ -157,24 +188,28 @@ def transform_opportunity(api_data: Dict[str, Any]) -> Opportunity:
     """Transform API opportunity data to Opportunity model instance."""
     # Handle complex stage object
     stage = api_data.get('stage')
-    if isinstance(stage, dict):
+    if isinstance(stage,
+                  dict):
         stage = stage.get('name')
 
     # Handle complex value object if present
     value = api_data.get('value')
-    if isinstance(value, dict):
+    if isinstance(value,
+                  dict):
         value = value.get('amount')
 
     # Handle complex probability object if present
     probability = api_data.get('probability')
-    if isinstance(probability, dict):
+    if isinstance(probability,
+                  dict):
         probability = probability.get('value')
 
     # Generate a default title if none is provided
     title = api_data.get('title')
     if not title:
         stage_name = stage if stage else 'Unknown Stage'
-        contact_id = api_data.get('contact_id', 'Unknown Contact')
+        contact_id = api_data.get('contact_id',
+                                  'Unknown Contact')
         title = f"Opportunity for Contact {contact_id} - {stage_name}"
 
     return Opportunity(
@@ -194,7 +229,8 @@ def transform_product(api_data: Dict[str, Any]) -> Product:
         id=api_data.get('id'),
         product_name=api_data.get('product_name'),
         product_sku=api_data.get('product_sku'),
-        subscription_only=api_data.get('subscription_only', False),
+        subscription_only=api_data.get('subscription_only',
+                                       False),
         plan_description=api_data.get('plan_description'),
         frequency=api_data.get('frequency'),
         price=api_data.get('price'),
@@ -240,7 +276,8 @@ def transform_task(api_data: Dict[str, Any]) -> Task:
         title=api_data.get('title'),
         description=api_data.get('description'),
         due_date=datetime.fromisoformat(api_data.get('due_date')) if api_data.get('due_date') else None,
-        completed=api_data.get('completed', False),
+        completed=api_data.get('completed',
+                               False),
         created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None,
         modified_at=datetime.fromisoformat(api_data.get('modified_at')) if api_data.get('modified_at') else None
     )
@@ -311,12 +348,14 @@ def transform_list_response(api_data: Dict[str, Any], transform_func: callable) 
         # Try to find the first key whose value is a list
         items = None
         for key, value in api_data.items():
-            if isinstance(value, list):
+            if isinstance(value,
+                          list):
                 items = value
                 break
         # Fallback to 'items' key if present
         if items is None:
-            items = api_data.get('items', [])
+            items = api_data.get('items',
+                                 [])
 
     # Transform items with error handling
     transformed_items = []
@@ -389,7 +428,8 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
     if 'email_addresses' in api_data:
         for email in api_data['email_addresses']:
             try:
-                if isinstance(email, dict):
+                if isinstance(email,
+                              dict):
                     email_address = transform_email_address(email)
                 else:
                     email_address = transform_email_address(email.__dict__)
@@ -401,7 +441,8 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
     if 'phone_numbers' in api_data:
         for phone in api_data['phone_numbers']:
             try:
-                if isinstance(phone, dict):
+                if isinstance(phone,
+                              dict):
                     phone_number = transform_phone_number(phone)
                 else:
                     phone_number = transform_phone_number(phone.__dict__)
@@ -413,7 +454,8 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
     if 'addresses' in api_data:
         for address in api_data['addresses']:
             try:
-                if isinstance(address, dict):
+                if isinstance(address,
+                              dict):
                     address_obj = transform_address(address)
                 else:
                     address_obj = transform_address(address.__dict__)
@@ -425,7 +467,8 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
     if 'fax_numbers' in api_data:
         for fax in api_data['fax_numbers']:
             try:
-                if isinstance(fax, dict):
+                if isinstance(fax,
+                              dict):
                     fax_number = transform_fax_number(fax)
                 else:
                     fax_number = transform_fax_number(fax.__dict__)
@@ -451,7 +494,8 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
     if 'custom_fields' in api_data:
         for field_name, field_def in api_data['custom_fields'].items():
             try:
-                custom_field = transform_custom_field(field_name, field_def)
+                custom_field = transform_custom_field(field_name,
+                                                      field_def)
                 if 'value' in field_def:
                     custom_field_value = transform_custom_field_value(
                         {'value': field_def['value']},
@@ -466,7 +510,8 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
     if 'opportunities' in api_data:
         for opportunity in api_data['opportunities']:
             try:
-                if isinstance(opportunity, dict):
+                if isinstance(opportunity,
+                              dict):
                     opportunity_obj = transform_opportunity(opportunity)
                 else:
                     opportunity_obj = transform_opportunity(opportunity.__dict__)
@@ -478,7 +523,8 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
     if 'tasks' in api_data:
         for task in api_data['tasks']:
             try:
-                if isinstance(task, dict):
+                if isinstance(task,
+                              dict):
                     task_obj = transform_task(task)
                 else:
                     task_obj = transform_task(task.__dict__)
@@ -490,7 +536,8 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
     if 'notes' in api_data:
         for note in api_data['notes']:
             try:
-                if isinstance(note, dict):
+                if isinstance(note,
+                              dict):
                     note_obj = transform_note(note)
                 else:
                     note_obj = transform_note(note.__dict__)
@@ -502,7 +549,8 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
     if 'orders' in api_data:
         for order in api_data['orders']:
             try:
-                if isinstance(order, dict):
+                if isinstance(order,
+                              dict):
                     order_obj = transform_order_with_items(order)
                 else:
                     order_obj = transform_order_with_items(order.__dict__)
@@ -514,7 +562,8 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
     if 'subscriptions' in api_data:
         for subscription in api_data['subscriptions']:
             try:
-                if isinstance(subscription, dict):
+                if isinstance(subscription,
+                              dict):
                     subscription_obj = transform_subscription(subscription)
                 else:
                     subscription_obj = transform_subscription(subscription.__dict__)
@@ -565,7 +614,8 @@ def transform_account_profile(api_data: Dict[str, Any]) -> AccountProfile:
         profile.business_goals = []
         for goal in api_data['business_goals']:
             try:
-                profile.business_goals.append(transform_business_goal(goal, profile.id))
+                profile.business_goals.append(transform_business_goal(goal,
+                                                                      profile.id))
             except Exception as e:
                 logger.error(f"Error transforming business goal for profile {profile.id}: {str(e)}")
                 continue
@@ -580,8 +630,10 @@ def transform_affiliate(api_data: Dict[str, Any]) -> Affiliate:
         code=api_data.get('code'),
         contact_id=api_data.get('contact_id'),
         name=api_data.get('name'),
-        notify_on_lead=api_data.get('notify_on_lead', False),
-        notify_on_sale=api_data.get('notify_on_sale', False),
+        notify_on_lead=api_data.get('notify_on_lead',
+                                    False),
+        notify_on_sale=api_data.get('notify_on_sale',
+                                    False),
         parent_id=api_data.get('parent_id'),
         status=api_data.get('status'),
         track_leads_for=api_data.get('track_leads_for'),
@@ -640,7 +692,8 @@ def transform_affiliate_redirect(api_data: Dict[str, Any]) -> AffiliateRedirect:
         redirect.program_ids = []
         for program_id in api_data['program_ids']:
             try:
-                redirect.program_ids.append(transform_affiliate_redirect_program(program_id, redirect.id))
+                redirect.program_ids.append(transform_affiliate_redirect_program(program_id,
+                                                                                 redirect.id))
             except Exception as e:
                 logger.error(f"Error transforming program ID for redirect {redirect.id}: {str(e)}")
                 continue

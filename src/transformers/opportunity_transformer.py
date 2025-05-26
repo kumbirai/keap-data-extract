@@ -2,7 +2,8 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from src.models.models import Opportunity, Contact
+from src.models.models import Contact, \
+    Opportunity
 
 
 class OpportunityTransformer:

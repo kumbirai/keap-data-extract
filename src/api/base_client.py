@@ -1,17 +1,17 @@
 import logging
 import os
-from typing import Dict, Any, Optional
+from typing import Any, \
+    Dict, \
+    Optional
 
 import requests
 from dotenv import load_dotenv
 
-from .exceptions import (
-    KeapAPIError,
-    KeapAuthenticationError,
-    KeapRateLimitError,
-    KeapNotFoundError,
-    KeapServerError
-)
+from .exceptions import (KeapAPIError,
+                         KeapAuthenticationError,
+                         KeapNotFoundError,
+                         KeapRateLimitError,
+                         KeapServerError)
 from ..utils.retry import exponential_backoff
 
 # Get logger for this module
@@ -27,10 +27,7 @@ class KeapBaseClient:
         if not self.api_key:
             raise KeapAuthenticationError("KEAP_API_KEY environment variable is not set")
 
-        self.headers = {
-            'Accept': 'application/json',
-            'X-Keap-API-Key': self.api_key
-        }
+        self.headers = {'Accept': 'application/json', 'X-Keap-API-Key': self.api_key}
 
         # Initialize session for connection pooling
         self.session = requests.Session()
@@ -62,15 +59,12 @@ class KeapBaseClient:
             logger.debug(f"API Response: {data}")
 
             # Log quota-related headers
-            quota_headers = {
-                'x-keap-product-quota-limit': response.headers.get('x-keap-product-quota-limit'),
-                'x-keap-product-quota-time-unit': response.headers.get('x-keap-product-quota-time-unit'),
-                'x-keap-product-quota-interval': response.headers.get('x-keap-product-quota-interval'),
-                'x-keap-product-quota-available': response.headers.get('x-keap-product-quota-available'),
-                'x-keap-product-quota-used': response.headers.get('x-keap-product-quota-used'),
-                'x-keap-product-quota-expiry-time': response.headers.get('x-keap-product-quota-expiry-time')
-            }
-            logger.debug("Quota Headers: %s", quota_headers)
+            quota_headers = {'x-keap-product-quota-limit': response.headers.get('x-keap-product-quota-limit'), 'x-keap-product-quota-time-unit': response.headers.get('x-keap-product-quota-time-unit'),
+                             'x-keap-product-quota-interval': response.headers.get('x-keap-product-quota-interval'),
+                             'x-keap-product-quota-available': response.headers.get('x-keap-product-quota-available'), 'x-keap-product-quota-used': response.headers.get('x-keap-product-quota-used'),
+                             'x-keap-product-quota-expiry-time': response.headers.get('x-keap-product-quota-expiry-time')}
+            logger.debug("Quota Headers: %s",
+                         quota_headers)
 
             return data
         except requests.exceptions.HTTPError as e:
@@ -90,9 +84,7 @@ class KeapBaseClient:
                         retry_after = int(retry_after)
                     except ValueError:
                         retry_after = None
-                raise KeapRateLimitError(
-                    f"Rate limit exceeded. Retry after: {retry_after} seconds"
-                )
+                raise KeapRateLimitError(f"Rate limit exceeded. Retry after: {retry_after} seconds")
             elif status_code >= 500:
                 raise KeapServerError(f"Server error: {str(e)}")
             else:
@@ -105,14 +97,12 @@ class KeapBaseClient:
             logger.error(f"Request Error: {str(e)}")
             raise KeapAPIError(f"Request failed: {str(e)}")
 
-    @exponential_backoff(
-        max_retries=5,
-        base_delay=1.0,
-        max_delay=60.0,
-        exponential_base=2.0,
-        jitter=True,
-        exceptions=(KeapRateLimitError, KeapServerError)
-    )
+    @exponential_backoff(max_retries=5,
+                         base_delay=1.0,
+                         max_delay=60.0,
+                         exponential_base=2.0,
+                         jitter=True,
+                         exceptions=(KeapRateLimitError, KeapServerError))
     def _make_request(self, method: str, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict:
         """
         Make an HTTP request to the Keap API with retry logic for rate limits
@@ -132,11 +122,9 @@ class KeapBaseClient:
 
         try:
             logger.debug(f"Making {method} request to {url}")
-            response = self.session.request(
-                method=method,
-                url=url,
-                params=params
-            )
+            response = self.session.request(method=method,
+                                            url=url,
+                                            params=params)
             return self._handle_response(response)
         except Exception as e:
             logger.error(f"Request failed: {str(e)}")
@@ -156,9 +144,12 @@ class KeapBaseClient:
         Raises:
             KeapAPIError: If the request fails after all retries
         """
-        return self._make_request('GET', endpoint, params)
+        return self._make_request('GET',
+                                  endpoint,
+                                  params)
 
     def __del__(self):
         """Cleanup session on object destruction"""
-        if hasattr(self, 'session'):
+        if hasattr(self,
+                   'session'):
             self.session.close()

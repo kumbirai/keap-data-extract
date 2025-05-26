@@ -1,55 +1,56 @@
 import logging
-from typing import List, Optional, Tuple, Dict, Any
-from urllib.parse import urlparse, parse_qs
+from typing import List, \
+    Optional, \
+    Tuple, \
+    Dict, \
+    Any
+from urllib.parse import urlparse, \
+    parse_qs
 
 from .base_client import KeapBaseClient
 from .exceptions import KeapNotFoundError
-from ..models.models import (
-    Contact,
-    Tag,
-    CustomField,
-    Opportunity,
-    Product,
-    Order,
-    OrderItem,
-    Task,
-    Note,
-    Campaign,
-    CampaignSequence,
-    Subscription,
-    AccountProfile,
-    Affiliate,
-    AffiliateCommission,
-    AffiliateProgram,
-    AffiliateRedirect,
-    AffiliateSummary,
-    AffiliateClawback,
-    AffiliatePayment
-)
-from ..utils.transformers import (
-    transform_contact_with_related,
-    transform_tag,
-    transform_custom_field,
-    transform_opportunity,
-    transform_product,
-    transform_order_item,
-    transform_task,
-    transform_note,
-    transform_campaign,
-    transform_campaign_sequence,
-    transform_subscription,
-    transform_list_response,
-    transform_order_with_items,
-    transform_account_profile,
-    transform_affiliate,
-    transform_affiliate_commission,
-    transform_affiliate_program,
-    transform_affiliate_redirect,
-    transform_affiliate_summary,
-    transform_affiliate_clawback,
-    transform_affiliate_payment,
-    transform_applied_tag
-)
+from ..models.models import (Contact,
+                             Tag,
+                             CustomField,
+                             Opportunity,
+                             Product,
+                             Order,
+                             OrderItem,
+                             Task,
+                             Note,
+                             Campaign,
+                             CampaignSequence,
+                             Subscription,
+                             AccountProfile,
+                             Affiliate,
+                             AffiliateCommission,
+                             AffiliateProgram,
+                             AffiliateRedirect,
+                             AffiliateSummary,
+                             AffiliateClawback,
+                             AffiliatePayment)
+from ..utils.transformers import (transform_contact_with_related,
+                                  transform_tag,
+                                  transform_custom_field,
+                                  transform_opportunity,
+                                  transform_product,
+                                  transform_order_item,
+                                  transform_task,
+                                  transform_note,
+                                  transform_campaign,
+                                  transform_campaign_sequence,
+                                  transform_subscription,
+                                  transform_list_response,
+                                  transform_order_with_items,
+                                  transform_account_profile,
+                                  transform_affiliate,
+                                  transform_affiliate_commission,
+                                  transform_affiliate_program,
+                                  transform_affiliate_redirect,
+                                  transform_affiliate_summary,
+                                  transform_affiliate_clawback,
+                                  transform_affiliate_payment,
+                                  transform_applied_tag)
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,8 @@ class KeapClient(KeapBaseClient):
         try:
             parsed_url = urlparse(next_url)
             query_params = parse_qs(parsed_url.query)
-            offset = query_params.get('offset', [None])[0]
+            offset = query_params.get('offset',
+                                      [None])[0]
             return int(offset) if offset is not None else None
         except (ValueError, KeyError, IndexError) as e:
             logger.warning(f"Failed to parse next URL: {next_url}. Error: {str(e)}")
@@ -91,7 +93,8 @@ class KeapClient(KeapBaseClient):
         """
         try:
             params = {'limit': limit, 'offset': offset, 'order': 'id'}
-            response = self.get('contacts', params)
+            response = self.get('contacts',
+                                params)
             logger.debug(f"Raw contacts API response: {response}")
 
             if not response or 'contacts' not in response:
@@ -100,9 +103,11 @@ class KeapClient(KeapBaseClient):
 
             # Transform each contact with its related data
             items = []
-            for item in response.get('contacts', []):
+            for item in response.get('contacts',
+                                     []):
                 try:
-                    transformed_contact = transform_contact_with_related(item, db_session)
+                    transformed_contact = transform_contact_with_related(item,
+                                                                         db_session)
                     items.append(transformed_contact)
                 except Exception as e:
                     logger.error(f"Error transforming contact: {str(e)}")
@@ -142,9 +147,11 @@ class KeapClient(KeapBaseClient):
             - Dictionary containing pagination metadata
         """
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        response = self.get('tags', params)
+        response = self.get('tags',
+                            params)
         logger.debug(f"Raw tags API response: {response}")
-        return transform_list_response(response, transform_tag)
+        return transform_list_response(response,
+                                       transform_tag)
 
     def get_contact_model(self) -> Dict[str, Any]:
         """Get the contact model definition from the API.
@@ -186,24 +193,29 @@ class KeapClient(KeapBaseClient):
 
         # Extract custom fields from the model
         custom_fields = []
-        custom_fields_data = model.get('custom_fields', {})
+        custom_fields_data = model.get('custom_fields',
+                                       {})
 
         # Handle both dictionary and list responses
-        if isinstance(custom_fields_data, dict):
+        if isinstance(custom_fields_data,
+                      dict):
             # If it's a dictionary, process each field name and definition
             for field_name, field_def in custom_fields_data.items():
                 try:
-                    custom_field = transform_custom_field(field_name, field_def)
+                    custom_field = transform_custom_field(field_name,
+                                                          field_def)
                     custom_fields.append(custom_field)
                 except Exception as e:
                     logger.error(f"Error transforming custom field {field_name} for {entity_type}: {str(e)}")
                     continue
-        elif isinstance(custom_fields_data, list):
+        elif isinstance(custom_fields_data,
+                        list):
             # If it's a list, each item should be a field definition with a name
             for field_def in custom_fields_data:
                 try:
                     field_name = field_def.get('name')
-                    custom_field = transform_custom_field(field_name, field_def)
+                    custom_field = transform_custom_field(field_name,
+                                                          field_def)
                     custom_fields.append(custom_field)
                 except Exception as e:
                     logger.error(f"Error transforming custom field for {entity_type}: {str(e)}")
@@ -263,8 +275,10 @@ class KeapClient(KeapBaseClient):
         params = {'limit': limit, 'offset': offset, 'order': 'date_created'}
         if contact_id:
             params['contact_id'] = contact_id
-        response = self.get('opportunities', params)
-        return transform_list_response(response, transform_opportunity)
+        response = self.get('opportunities',
+                            params)
+        return transform_list_response(response,
+                                       transform_opportunity)
 
     def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None) -> Tuple[
         List[Product], Dict[str, Any]]:
@@ -283,8 +297,10 @@ class KeapClient(KeapBaseClient):
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
         if subscription_only is not None:
             params['subscription_only'] = subscription_only
-        response = self.get('products', params)
-        return transform_list_response(response, transform_product)
+        response = self.get('products',
+                            params)
+        return transform_list_response(response,
+                                       transform_product)
 
     def get_product(self, product_id: int) -> Product:
         """Get a single product by ID."""
@@ -308,8 +324,10 @@ class KeapClient(KeapBaseClient):
         params = {'limit': limit, 'offset': offset, 'order': 'order_date'}
         if contact_id:
             params['contact_id'] = contact_id
-        response = self.get('orders', params)
-        return transform_list_response(response, transform_order_with_items)
+        response = self.get('orders',
+                            params)
+        return transform_list_response(response,
+                                       transform_order_with_items)
 
     def get_order(self, order_id: int) -> Order:
         """Get a single order by ID with its items."""
@@ -320,7 +338,8 @@ class KeapClient(KeapBaseClient):
         """Get items for an order."""
         try:
             response = self.get(f'orders/{order_id}/items')
-            return transform_list_response(response, transform_order_item)
+            return transform_list_response(response,
+                                           transform_order_item)
         except KeapNotFoundError:
             logger.warning(f"No items found for order {order_id}")
             return []
@@ -342,8 +361,10 @@ class KeapClient(KeapBaseClient):
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
         if contact_id:
             params['contact_id'] = contact_id
-        response = self.get('tasks', params)
-        return transform_list_response(response, transform_task)
+        response = self.get('tasks',
+                            params)
+        return transform_list_response(response,
+                                       transform_task)
 
     def get_task(self, task_id: int) -> Task:
         """Get a single task by ID."""
@@ -367,8 +388,10 @@ class KeapClient(KeapBaseClient):
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
         if contact_id:
             params['contact_id'] = contact_id
-        response = self.get('notes', params)
-        return transform_list_response(response, transform_note)
+        response = self.get('notes',
+                            params)
+        return transform_list_response(response,
+                                       transform_note)
 
     def get_note(self, note_id: int) -> Note:
         """Get a single note by ID."""
@@ -388,8 +411,10 @@ class KeapClient(KeapBaseClient):
             - Dictionary containing pagination metadata
         """
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        response = self.get('campaigns', params)
-        return transform_list_response(response, transform_campaign)
+        response = self.get('campaigns',
+                            params)
+        return transform_list_response(response,
+                                       transform_campaign)
 
     def get_campaign(self, campaign_id: int) -> Campaign:
         """Get a single campaign by ID."""
@@ -400,7 +425,8 @@ class KeapClient(KeapBaseClient):
         """Get sequences for a campaign."""
         try:
             response = self.get(f'campaigns/{campaign_id}/sequences')
-            return transform_list_response(response, transform_campaign_sequence)
+            return transform_list_response(response,
+                                           transform_campaign_sequence)
         except KeapNotFoundError:
             logger.warning(f"No sequences found for campaign {campaign_id}")
             return []
@@ -422,8 +448,10 @@ class KeapClient(KeapBaseClient):
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
         if contact_id:
             params['contact_id'] = contact_id
-        response = self.get('subscriptions', params)
-        return transform_list_response(response, transform_subscription)
+        response = self.get('subscriptions',
+                            params)
+        return transform_list_response(response,
+                                       transform_subscription)
 
     def get_subscription(self, subscription_id: int) -> Subscription:
         """Get a single subscription by ID."""
@@ -438,8 +466,10 @@ class KeapClient(KeapBaseClient):
     def get_affiliates(self, limit: int = 50, offset: int = 0) -> List[Affiliate]:
         """Get a list of affiliates."""
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        response = self.get('affiliates', params)
-        return transform_list_response(response, transform_affiliate)
+        response = self.get('affiliates',
+                            params)
+        return transform_list_response(response,
+                                       transform_affiliate)
 
     def get_affiliate(self, affiliate_id: int) -> Affiliate:
         """Get a single affiliate by ID."""
@@ -450,20 +480,26 @@ class KeapClient(KeapBaseClient):
         AffiliateCommission]:
         """Get commissions for an affiliate."""
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        response = self.get(f'affiliates/{affiliate_id}/commissions', params)
-        return transform_list_response(response, transform_affiliate_commission)
+        response = self.get(f'affiliates/{affiliate_id}/commissions',
+                            params)
+        return transform_list_response(response,
+                                       transform_affiliate_commission)
 
     def get_affiliate_programs(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[AffiliateProgram]:
         """Get programs for an affiliate."""
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        response = self.get(f'affiliates/{affiliate_id}/programs', params)
-        return transform_list_response(response, transform_affiliate_program)
+        response = self.get(f'affiliates/{affiliate_id}/programs',
+                            params)
+        return transform_list_response(response,
+                                       transform_affiliate_program)
 
     def get_affiliate_redirects(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[AffiliateRedirect]:
         """Get redirects for an affiliate."""
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        response = self.get(f'affiliates/{affiliate_id}/redirects', params)
-        return transform_list_response(response, transform_affiliate_redirect)
+        response = self.get(f'affiliates/{affiliate_id}/redirects',
+                            params)
+        return transform_list_response(response,
+                                       transform_affiliate_redirect)
 
     def get_affiliate_summary(self, affiliate_id: int) -> AffiliateSummary:
         """Get summary for an affiliate."""
@@ -473,14 +509,18 @@ class KeapClient(KeapBaseClient):
     def get_affiliate_clawbacks(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[AffiliateClawback]:
         """Get clawbacks for an affiliate."""
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        response = self.get(f'affiliates/{affiliate_id}/clawbacks', params)
-        return transform_list_response(response, transform_affiliate_clawback)
+        response = self.get(f'affiliates/{affiliate_id}/clawbacks',
+                            params)
+        return transform_list_response(response,
+                                       transform_affiliate_clawback)
 
     def get_affiliate_payments(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[AffiliatePayment]:
         """Get payments for an affiliate."""
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        response = self.get(f'affiliates/{affiliate_id}/payments', params)
-        return transform_list_response(response, transform_affiliate_payment)
+        response = self.get(f'affiliates/{affiliate_id}/payments',
+                            params)
+        return transform_list_response(response,
+                                       transform_affiliate_payment)
 
     def get_contact_tags(self, contact_id: int) -> List[Tag]:
         """Get a list of tags applied to a specific contact.
@@ -493,4 +533,5 @@ class KeapClient(KeapBaseClient):
         """
         response = self.get(f'contacts/{contact_id}/tags')
         # Use a different transformer for the applied tags response
-        return [transform_applied_tag(tag_data) for tag_data in response.get('tags', [])]
+        return [transform_applied_tag(tag_data) for tag_data in response.get('tags',
+                                                                             [])]
