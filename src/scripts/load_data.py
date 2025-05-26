@@ -259,6 +259,7 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
     while True:
         # Get current offset from checkpoint
         current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
         items, pagination = client.get_contacts(limit=batch_size, offset=current_offset, db_session=db)
@@ -366,6 +367,7 @@ def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: Check
     while True:
         # Get current offset from checkpoint
         current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
         items, pagination = client.get_tags(limit=batch_size, offset=current_offset)
@@ -430,6 +432,7 @@ def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: Chec
     })
 
     while True:
+        logger.info(f"Loading {entity_type} - Current offset: {offset}")
         logger.info(f"Fetching custom fields with params: {query_params}")
         custom_fields = client.get_custom_fields(**query_params)
         logger.info(f"Received {len(custom_fields) if custom_fields else 0} custom fields from API")
@@ -475,6 +478,7 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
     while True:
         # Get current offset from checkpoint
         current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
         items, pagination = client.get_opportunities(limit=batch_size, offset=current_offset)
@@ -533,6 +537,7 @@ def load_products(client: KeapClient, db_session: Session, checkpoint_manager: C
     while True:
         # Get current offset from checkpoint
         current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
         items, pagination = client.get_products(limit=batch_size, offset=current_offset)
@@ -591,6 +596,7 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
     while True:
         # Get current offset from checkpoint
         current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
         items, pagination = client.get_orders(limit=batch_size, offset=current_offset)
@@ -649,6 +655,7 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
     while True:
         # Get current offset from checkpoint
         current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
         items, pagination = client.get_tasks(limit=batch_size, offset=current_offset)
@@ -707,6 +714,7 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
     while True:
         # Get current offset from checkpoint
         current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
         items, pagination = client.get_notes(limit=batch_size, offset=current_offset)
@@ -765,6 +773,7 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
     while True:
         # Get current offset from checkpoint
         current_offset = checkpoint_manager.get_checkpoint(entity_type)
+        logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
         # Make API call with limit and offset
         items, pagination = client.get_campaigns(limit=batch_size, offset=current_offset)
@@ -829,6 +838,7 @@ def load_subscriptions(client: KeapClient, db: Session, checkpoint_manager: Chec
     })
 
     while True:
+        logger.info(f"Loading {entity_type} - Current offset: {offset}")
         logger.info(f"Fetching subscriptions with params: {query_params}")
         try:
             subscriptions = client.get_subscriptions(**query_params)
@@ -894,6 +904,7 @@ def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: Checkpo
     })
 
     while True:
+        logger.info(f"Loading {entity_type} - Current offset: {offset}")
         logger.info(f"Fetching affiliates with params: {query_params}")
         try:
             affiliates = client.get_affiliates(**query_params)
