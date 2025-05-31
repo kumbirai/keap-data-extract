@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session
 
 from src.api.keap_client import KeapClient
 from src.database.config import SessionLocal
-from src.models.models import (Affiliate, Campaign, Contact, CustomField, Note, Opportunity, Order, PaymentGateway, PaymentPlan, Product, Subscription, SubscriptionPlan, Task, TagCategory)
+from src.models.models import (Affiliate, Campaign, Contact, CustomField, Note, Opportunity, Order, Product, Subscription, Tag, TagCategory, Task)
 from src.utils.error_logger import ErrorLogger
 from src.utils.logging_config import setup_logging
-from src.utils.transformers import (transform_credit_card, transform_shipping_information, transform_tag)
+from src.utils.transformers import (transform_credit_card, transform_tag)
 
 # Create logs and checkpoints directories if they don't exist
 os.makedirs('logs', exist_ok=True)
@@ -236,36 +236,48 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
                 try:
                     logger.info(f"Processing contact ID: {item.id}, Name: {item.given_name} {item.family_name}")
 
+                    # Get full contact details
+                    full_contact = client.get_contact(item.id)
+                    logger.info(f"Retrieved full contact details for ID: {item.id}")
+
                     # First, check if contact exists
                     existing_contact = db.query(Contact).filter(Contact.id == item.id).first()
 
+                    # Get credit cards for this contact
+                    try:
+                        credit_cards_data, _ = client.get_contact_credit_cards(item.id)
+                        logger.info(f"Retrieved {len(credit_cards_data)} credit cards for contact {item.id}")
+                        # Transform credit card dictionaries into model instances
+                        credit_cards = [transform_credit_card(card_data) for card_data in credit_cards_data]
+                    except Exception as e:
+                        logger.info(f"Error fetching credit cards for contact {item.id}: {e}")
+                        credit_cards = []
+
+                    # Get tag IDs and existing tags
+                    tags = full_contact.tags if hasattr(full_contact, 'tags') else []
+                    tag_ids = [tag.id for tag in tags]
+                    existing_tags = db.query(Tag).filter(Tag.id.in_(tag_ids)).all()
+
                     if existing_contact:
                         # Update existing contact's attributes
-                        for key, value in item.__dict__.items():
+                        for key, value in full_contact.__dict__.items():
                             if not key.startswith('_'):
                                 setattr(existing_contact, key, value)
+
+                        # Clear existing relationships
+                        existing_contact.credit_cards = []
+                        existing_contact.tags = []
+
+                        # Add new relationships
+                        existing_contact.credit_cards = credit_cards
+                        existing_contact.tags = existing_tags
+
                         db.add(existing_contact)
                     else:
-                        # Add new contact
-                        db.add(item)
-
-                    # Fetch and process credit cards for this contact
-                    try:
-                        credit_cards, _ = client.get_contact_credit_cards(item.id)
-                        for card_data in credit_cards:
-                            try:
-                                card = transform_credit_card(card_data)
-                                if existing_contact:
-                                    existing_contact.credit_cards.append(card)
-                                else:
-                                    item.credit_cards.append(card)
-                            except Exception as e:
-                                logger.error(f"Error transforming credit card for contact {item.id}: {e}")
-                                continue
-                    except Exception as e:
-                        logger.error(f"Error fetching credit cards for contact {item.id}: {e}")
-                        # Continue with next contact even if credit card fetch fails
-                        continue
+                        # Add new contact with relationships
+                        full_contact.credit_cards = credit_cards
+                        full_contact.tags = existing_tags
+                        db.add(full_contact)
 
                     db.commit()
                     success_count += 1
@@ -336,7 +348,7 @@ def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: Check
                 tag_id = item.id if hasattr(item, 'id') else (item.get('id', 0) if isinstance(item, dict) else 0)
                 tag_name = item.name if hasattr(item, 'name') else (item.get('name', '') if isinstance(item, dict) else '')
                 logger.info(f"Processing tag ID: {tag_id}, Name: {tag_name}")
-                
+
                 try:
                     # Transform and save tag
                     tag = transform_tag(item) if isinstance(item, dict) else item
@@ -352,8 +364,7 @@ def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: Check
                                     db_session.merge(category)
                                     db_session.flush()
                             except Exception as e:
-                                logger.warning(f"Error handling tag category for tag {tag_id}: {str(e)}")
-                                # Continue processing the tag even if category handling fails
+                                logger.warning(f"Error handling tag category for tag {tag_id}: {str(e)}")  # Continue processing the tag even if category handling fails
 
                         # Use merge instead of add to handle both inserts and updates
                         db_session.merge(tag)
@@ -361,7 +372,6 @@ def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: Check
                 except Exception as e:
                     failed_count += 1
                     log_error(error_logger, entity_type, tag_id, e, {'name': tag_name})
-                    logger.error(f"Error processing tag {tag_id}: {str(e)}")
                     # Roll back the session for this item
                     db_session.rollback()
                     continue
@@ -617,18 +627,22 @@ def load_products(client: KeapClient, db_session: Session, checkpoint_manager: C
                 try:
                     logger.info(f"Processing product ID: {item.id}, Name: {item.product_name}")
 
+                    # Get full product details
+                    full_product = client.get_product(item.id)
+                    logger.info(f"Retrieved full product details for ID: {item.id}")
+
                     # First, check if product exists
                     existing_product = db_session.query(Product).filter(Product.id == item.id).first()
 
                     if existing_product:
                         # Update existing product's attributes
-                        for key, value in item.__dict__.items():
+                        for key, value in full_product.__dict__.items():
                             if not key.startswith('_'):
                                 setattr(existing_product, key, value)
                         db_session.add(existing_product)
                     else:
                         # Add new product
-                        db_session.add(item)
+                        db_session.add(full_product)
 
                     db_session.commit()
                     success_count += 1
@@ -699,18 +713,41 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
                 try:
                     logger.info(f"Processing order ID: {item.id}, Title: {item.title}")
 
+                    # Get full order details
+                    full_order = client.get_order(item.id)
+                    logger.info(f"Retrieved full order details for ID: {item.id}")
+
+                    # Get order payments
+                    payments, _ = client.get_order_payments(item.id)
+                    logger.info(f"Retrieved {len(payments)} payments for order ID: {item.id}")
+
+                    # Get order transactions
+                    transactions, _ = client.get_order_transactions(item.id)
+                    logger.info(f"Retrieved {len(transactions)} transactions for order ID: {item.id}")
+
                     # First, check if order exists
                     existing_order = db_session.query(Order).filter(Order.id == item.id).first()
 
                     if existing_order:
                         # Update existing order's attributes
-                        for key, value in item.__dict__.items():
+                        for key, value in full_order.__dict__.items():
                             if not key.startswith('_'):
                                 setattr(existing_order, key, value)
+
+                        # Clear existing relationships
+                        existing_order.payments = []
+                        existing_order.transactions = []
+
+                        # Add new relationships
+                        existing_order.payments = payments
+                        existing_order.transactions = transactions
+
                         db_session.add(existing_order)
                     else:
-                        # Add new order
-                        db_session.add(item)
+                        # Add new order with relationships
+                        full_order.payments = payments
+                        full_order.transactions = transactions
+                        db_session.add(full_order)
 
                     db_session.commit()
                     success_count += 1
@@ -781,18 +818,22 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
                 try:
                     logger.info(f"Processing task ID: {item.id}, Title: {item.title}")
 
+                    # Get full task details
+                    full_task = client.get_task(item.id)
+                    logger.info(f"Retrieved full task details for ID: {item.id}")
+
                     # First, check if task exists
                     existing_task = db_session.query(Task).filter(Task.id == item.id).first()
 
                     if existing_task:
                         # Update existing task's attributes
-                        for key, value in item.__dict__.items():
+                        for key, value in full_task.__dict__.items():
                             if not key.startswith('_'):
                                 setattr(existing_task, key, value)
                         db_session.add(existing_task)
                     else:
                         # Add new task
-                        db_session.add(item)
+                        db_session.add(full_task)
 
                     db_session.commit()
                     success_count += 1
@@ -950,18 +991,22 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
                 try:
                     logger.info(f"Processing campaign ID: {item.id}, Name: {item.name}")
 
+                    # Get full campaign details
+                    full_campaign = client.get_campaign(item.id)
+                    logger.info(f"Retrieved full campaign details for ID: {item.id}")
+
                     # First, check if campaign exists
                     existing_campaign = db_session.query(Campaign).filter(Campaign.id == item.id).first()
 
                     if existing_campaign:
                         # Update existing campaign's attributes
-                        for key, value in item.__dict__.items():
+                        for key, value in full_campaign.__dict__.items():
                             if not key.startswith('_'):
                                 setattr(existing_campaign, key, value)
                         db_session.add(existing_campaign)
                     else:
                         # Add new campaign
-                        db_session.add(item)
+                        db_session.add(full_campaign)
 
                     db_session.commit()
                     success_count += 1
@@ -1450,8 +1495,7 @@ def load_affiliate_summaries(client: KeapClient, db: Session, checkpoint_manager
                 logger.debug(f"Successfully processed summary for affiliate {affiliate_id}")
             except Exception as e:
                 failed_count += 1
-                log_error(error_logger, entity_type, summary.id if summary else affiliate_id, e, 
-                         {'summary_data': summary.__dict__ if summary else None})
+                log_error(error_logger, entity_type, summary.id if summary else affiliate_id, e, {'summary_data': summary.__dict__ if summary else None})
                 db.rollback()
                 continue
 

@@ -101,13 +101,13 @@ class KeapClient(KeapBaseClient):
             params = {'limit': limit, 'offset': offset, 'order': 'id'}
             response = self.get('tags', params)
             logger.debug(f"Raw tags API response: {response}")
-            
+
             if not response:
                 logger.warning("Empty response received from tags API")
                 return [], {'next': None, 'previous': None, 'count': 0, 'limit': limit, 'offset': offset}
-            
+
             return transform_list_response(response, transform_tag)
-        
+
         except Exception as e:
             logger.error(f"Error fetching tags: {str(e)}")
             return [], {'next': None, 'previous': None, 'count': 0, 'limit': limit, 'offset': offset}
@@ -615,7 +615,7 @@ class KeapClient(KeapBaseClient):
         try:
             endpoint = f"contacts/{contact_id}/creditCards"
             response = self._make_request('GET', endpoint)
-            
+
             # The API returns a list directly, not wrapped in an object
             if isinstance(response, list):
                 items = response
@@ -625,7 +625,7 @@ class KeapClient(KeapBaseClient):
             else:
                 logger.warning(f"Unexpected response format for credit cards: {response}")
                 items = []
-            
+
             # Transform each credit card item
             transformed_items = []
             for item in items:
@@ -637,10 +637,10 @@ class KeapClient(KeapBaseClient):
                 except Exception as e:
                     logger.error(f"Error transforming credit card item: {str(e)}")
                     continue
-            
+
             pagination = {'next': None, 'count': len(transformed_items), 'total': len(transformed_items)}
             return transformed_items, pagination
-            
+
         except Exception as e:
             logger.error(f"Error fetching credit cards for contact {contact_id}: {str(e)}")
             return [], {'next': None, 'count': 0, 'total': 0}
