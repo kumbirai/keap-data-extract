@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from src.api.keap_client import KeapClient
 from src.database.config import SessionLocal
-from src.models.models import (Affiliate, Campaign, Contact, CustomField, Note, Opportunity, Order, Subscription, Tag, Task, PaymentPlan, SubscriptionPlan)
+from src.models.models import (Affiliate, Campaign, Contact, CustomField, Note, Opportunity, Order, PaymentPlan, Product, Subscription, SubscriptionPlan, Tag, Task)
 from src.utils.error_logger import ErrorLogger
 from src.utils.logging_config import setup_logging
 
@@ -632,10 +632,41 @@ def load_products(client: KeapClient, db_session: Session, checkpoint_manager: C
                 total_records += 1
                 try:
                     logger.info(f"Processing product ID: {item.id}, Name: {item.product_name}")
-                    # Use merge operation to handle both inserts and updates
-                    merged_product = db_session.merge(item)
-                    db_session.commit()
-                    success_count += 1
+
+                    # Get full product details with options and plans
+                    full_product = client.get_product(item.id)
+                    logger.info(f"Retrieved full product details for ID: {item.id}")
+
+                    # First, check if product exists
+                    existing_product = db_session.query(Product).filter(Product.id == item.id).first()
+
+                    if existing_product:
+                        # Update existing product's attributes
+                        for key, value in full_product.__dict__.items():
+                            if not key.startswith('_'):
+                                setattr(existing_product, key, value)
+
+                        # Clear existing relationships
+                        existing_product.product_options = []
+                        existing_product.subscription_plans = []
+
+                        # Add new relationships
+                        existing_product.product_options = full_product.product_options
+                        existing_product.subscription_plans = full_product.subscription_plans
+
+                        # After adding existing product
+                        db_session.add(existing_product)
+                        db_session.flush()  # Ensure product is persisted
+                        db_session.commit()
+                        success_count += 1
+
+                    else:
+                        # Add new product with relationships
+                        db_session.add(full_product)
+                        db_session.flush()  # Ensure product is persisted
+                        db_session.commit()
+                        success_count += 1
+
                 except Exception as e:
                     failed_count += 1
                     log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
@@ -901,7 +932,7 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
                 try:
                     logger.info(f"Processing note ID: {item.id}, Title: {item.title}")
 
-                    # Get full note details
+                    # Get full note details including custom fields
                     full_note = client.get_note(item.id)
                     logger.info(f"Retrieved full note details for ID: {item.id}")
 
@@ -916,9 +947,11 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
 
                         # Clear existing relationships
                         existing_note.contacts = []
+                        existing_note.custom_field_values = []
 
                         # Add new relationships using SQLAlchemy's native relationship handling
                         existing_note.contacts = full_note.contacts
+                        existing_note.custom_field_values = full_note.custom_field_values
 
                         # After adding existing note
                         db_session.add(existing_note)

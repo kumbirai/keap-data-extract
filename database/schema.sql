@@ -208,6 +208,18 @@ CREATE TABLE products (
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Product options table
+CREATE TABLE product_options (
+    id INTEGER PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    name VARCHAR(200) NOT NULL,
+    price FLOAT,
+    sku VARCHAR(100),
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Orders table (updated to match model)
 CREATE TABLE orders (
     id INTEGER PRIMARY KEY,
@@ -237,9 +249,10 @@ CREATE TABLE payment_plans (
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Subscription plans table
+-- Subscription plans table (updated)
 CREATE TABLE subscription_plans (
     id INTEGER PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
     name VARCHAR(200),
     description TEXT,
     frequency VARCHAR(50),
@@ -247,6 +260,14 @@ CREATE TABLE subscription_plans (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create indexes for product options
+CREATE INDEX idx_product_options_product_id ON product_options(product_id);
+CREATE INDEX idx_product_options_sku ON product_options(sku);
+
+-- Create indexes for subscription plans
+CREATE INDEX idx_subscription_plans_product_id ON subscription_plans(product_id);
+CREATE INDEX idx_subscription_plans_frequency ON subscription_plans(frequency);
 
 -- Order items table (updated to match model)
 CREATE TABLE order_items (
@@ -290,7 +311,15 @@ CREATE TABLE opportunities (
     value DECIMAL(15,2),
     probability DECIMAL(5,2),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    next_action_date TIMESTAMP WITH TIME ZONE,
+    next_action_notes TEXT,
+    source_type VARCHAR(50),
+    source_id INTEGER,
+    pipeline_id INTEGER,
+    pipeline_stage_id INTEGER,
+    owner_id INTEGER,
+    last_updated_utc_millis BIGINT
 );
 
 -- Tasks table
@@ -304,14 +333,46 @@ CREATE TABLE tasks (
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Notes table
+-- Create note_type enum
+CREATE TYPE note_type AS ENUM ('CALL', 'EMAIL', 'FAX', 'LETTER', 'MEETING', 'OTHER', 'TASK');
+
+-- Notes table (updated)
 CREATE TABLE notes (
     id INTEGER PRIMARY KEY,
     title VARCHAR(200),
-    body TEXT NOT NULL,
+    body TEXT,
+    type note_type,
+    user_id INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Note custom field values table
+CREATE TABLE note_custom_field_values (
+    id INTEGER PRIMARY KEY,
+    note_id INTEGER REFERENCES notes(id) ON DELETE CASCADE,
+    custom_field_id INTEGER REFERENCES custom_fields(id) ON DELETE CASCADE,
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uix_note_custom_field UNIQUE (note_id, custom_field_id)
+);
+
+-- Create indexes for note custom field values
+CREATE INDEX idx_note_custom_field_values_note_id ON note_custom_field_values(note_id);
+CREATE INDEX idx_note_custom_field_values_custom_field_id ON note_custom_field_values(custom_field_id);
+
+-- Create trigger for note custom field values
+CREATE TRIGGER update_note_custom_field_values_modtime
+    BEFORE UPDATE ON note_custom_field_values
+    FOR EACH ROW
+    EXECUTE FUNCTION update_modified_at_column();
+
+-- Create trigger for notes
+CREATE TRIGGER update_notes_modtime
+    BEFORE UPDATE ON notes
+    FOR EACH ROW
+    EXECUTE FUNCTION update_modified_at_column();
 
 -- Campaigns table
 CREATE TABLE campaigns (
@@ -510,11 +571,6 @@ CREATE TRIGGER update_opportunities_modtime
 
 CREATE TRIGGER update_tasks_modtime
     BEFORE UPDATE ON tasks
-    FOR EACH ROW
-    EXECUTE FUNCTION update_modified_at_column();
-
-CREATE TRIGGER update_notes_modtime
-    BEFORE UPDATE ON notes
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_at_column();
 
@@ -763,4 +819,11 @@ CREATE INDEX idx_order_transactions_order_id ON order_transactions(order_id);
 CREATE INDEX idx_order_transactions_transaction_date ON order_transactions(transaction_date);
 CREATE INDEX idx_order_transactions_transaction_type ON order_transactions(transaction_type);
 CREATE INDEX idx_order_transactions_transaction_status ON order_transactions(transaction_status);
-CREATE INDEX idx_order_transactions_gateway_transaction_id ON order_transactions(gateway_transaction_id); 
+CREATE INDEX idx_order_transactions_gateway_transaction_id ON order_transactions(gateway_transaction_id);
+
+-- Create indexes for opportunities
+CREATE INDEX idx_opportunities_contact_id ON contact_opportunity(contact_id);
+CREATE INDEX idx_opportunities_stage ON opportunities(stage);
+CREATE INDEX idx_opportunities_owner_id ON opportunities(owner_id);
+CREATE INDEX idx_opportunities_pipeline_id ON opportunities(pipeline_id);
+CREATE INDEX idx_opportunities_pipeline_stage_id ON opportunities(pipeline_stage_id); 

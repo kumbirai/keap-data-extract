@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Tuple
 
 from ..models.models import (AccountProfile, Address, AddressType, Affiliate, AffiliateClawback, AffiliateCommission, AffiliatePayment, AffiliateProgram, AffiliateRedirect, AffiliateRedirectProgram,
                              AffiliateSummary, BusinessGoal, Campaign, CampaignSequence, Contact, ContactCustomFieldValue, CustomField, CustomFieldMetaData, EmailAddress, FaxNumber, Note, Opportunity,
-                             Order, OrderItem, OrderPayment, PhoneNumber, Product, Subscription, Tag, Task, OrderTransaction)
+                             Order, OrderItem, OrderPayment, OrderTransaction, PhoneNumber, Product, ProductOption, Subscription, SubscriptionPlan, Tag, Task)
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +95,20 @@ def transform_opportunity(api_data: Dict[str, Any]) -> Opportunity:
     if isinstance(probability, dict):
         probability = probability.get('value')
 
+    # Handle complex next_action_date if present
+    next_action_date = api_data.get('next_action_date')
+    if isinstance(next_action_date, str):
+        next_action_date = datetime.fromisoformat(next_action_date.replace('Z', '+00:00'))
+
+    # Handle complex created_at and modified_at
+    created_at = api_data.get('created_at')
+    if created_at:
+        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+
+    modified_at = api_data.get('modified_at')
+    if modified_at:
+        modified_at = datetime.fromisoformat(modified_at.replace('Z', '+00:00'))
+
     # Generate a default title if none is provided
     title = api_data.get('title')
     if not title:
@@ -102,12 +116,28 @@ def transform_opportunity(api_data: Dict[str, Any]) -> Opportunity:
         contact_id = api_data.get('contact_id', 'Unknown Contact')
         title = f"Opportunity for Contact {contact_id} - {stage_name}"
 
-    return Opportunity(id=api_data.get('id'), title=title, stage=stage, value=value, probability=probability, created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None, modified_at=datetime.fromisoformat(api_data.get('modified_at')) if api_data.get('modified_at') else None)
+    return Opportunity(id=api_data.get('id'), title=title, stage=stage, value=value, probability=probability, created_at=created_at, modified_at=modified_at, next_action_date=next_action_date, next_action_notes=api_data.get('next_action_notes'), source_type=api_data.get('source_type'), source_id=api_data.get('source_id'), pipeline_id=api_data.get('pipeline_id'), pipeline_stage_id=api_data.get('pipeline_stage_id'), owner_id=api_data.get('owner_id'), last_updated_utc_millis=api_data.get('last_updated_utc_millis'))
 
 
 def transform_product(api_data: Dict[str, Any]) -> Product:
     """Transform API product data to Product model instance."""
-    return Product(id=api_data.get('id'), product_name=api_data.get('product_name'), product_sku=api_data.get('product_sku'), subscription_only=api_data.get('subscription_only', False), plan_description=api_data.get('plan_description'), frequency=api_data.get('frequency'), price=api_data.get('price'), created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None, modified_at=datetime.fromisoformat(api_data.get('modified_at')) if api_data.get('modified_at') else None)
+    product = Product(id=api_data.get('id'), product_name=api_data.get('product_name'), product_sku=api_data.get('product_sku'), subscription_only=api_data.get('subscription_only', False), plan_description=api_data.get('plan_description'), frequency=api_data.get('frequency'), price=api_data.get('price'), created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None, modified_at=datetime.fromisoformat(api_data.get('modified_at')) if api_data.get('modified_at') else None)
+
+    # Transform product options
+    if 'product_options' in api_data:
+        product.product_options = []
+        for option_data in api_data['product_options']:
+            option = ProductOption(name=option_data.get('name'), price=option_data.get('price'), sku=option_data.get('sku'), description=option_data.get('description'), created_at=datetime.fromisoformat(option_data.get('created_at')) if option_data.get('created_at') else None, modified_at=datetime.fromisoformat(option_data.get('modified_at')) if option_data.get('modified_at') else None)
+            product.product_options.append(option)
+
+    # Transform subscription plans
+    if 'subscription_plans' in api_data:
+        product.subscription_plans = []
+        for plan_data in api_data['subscription_plans']:
+            plan = SubscriptionPlan(name=plan_data.get('name'), description=plan_data.get('description'), frequency=plan_data.get('frequency'), subscription_plan_price=plan_data.get('subscription_plan_price'), created_at=datetime.fromisoformat(plan_data.get('created_at')) if plan_data.get('created_at') else None, modified_at=datetime.fromisoformat(plan_data.get('modified_at')) if plan_data.get('modified_at') else None)
+            product.subscription_plans.append(plan)
+
+    return product
 
 
 def transform_order(api_data: Dict[str, Any]) -> Order:
@@ -137,7 +167,13 @@ def transform_task(api_data: Dict[str, Any]) -> Task:
 
 def transform_note(api_data: Dict[str, Any]) -> Note:
     """Transform API note data to Note model instance."""
-    return Note(id=api_data.get('id'), title=api_data.get('title'), body=api_data.get('body'), created_at=datetime.fromisoformat(api_data.get('created_at')) if api_data.get('created_at') else None, modified_at=datetime.fromisoformat(api_data.get('modified_at')) if api_data.get('modified_at') else None)
+    note = Note(id=api_data.get('id'), title=api_data.get('title'), body=api_data.get('body'), type=api_data.get('type'), user_id=api_data.get('user_id'), created_at=api_data.get('created_at'), modified_at=api_data.get('modified_at'))
+
+    # Transform custom field values if present
+    if 'custom_field_values' in api_data:
+        note.custom_field_values = [transform_custom_field_value(value, note.id, value.get('custom_field_id')) for value in api_data['custom_field_values']]
+
+    return note
 
 
 def transform_campaign(api_data: Dict[str, Any]) -> Campaign:

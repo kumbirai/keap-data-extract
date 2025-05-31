@@ -543,6 +543,14 @@ class Opportunity(Base):
     probability = Column(Float)
     created_at = Column(DateTime, default=utc_now)
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    next_action_date = Column(DateTime)
+    next_action_notes = Column(Text)
+    source_type = Column(String(50))
+    source_id = Column(Integer)
+    pipeline_id = Column(Integer)
+    pipeline_stage_id = Column(Integer)
+    owner_id = Column(Integer)
+    last_updated_utc_millis = Column(BigInteger)
 
     # Relationships
     contacts = relationship("Contact", secondary="contact_opportunity", back_populates="opportunities")
@@ -568,9 +576,51 @@ class Product(Base):
     # Relationships
     order_items = relationship("OrderItem", secondary="product_order_item", back_populates="products")
     subscriptions = relationship("Subscription", secondary="product_subscription", back_populates="products")
+    product_options = relationship("ProductOption", back_populates="product", cascade="all, delete-orphan")
+    subscription_plans = relationship("SubscriptionPlan", back_populates="product", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Product(id={self.id}, product_name='{self.product_name}', product_sku='{self.product_sku}', price={self.price})>"
+
+
+class ProductOption(Base):
+    __tablename__ = 'product_options'
+
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, ForeignKey('products.id', ondelete='CASCADE'))
+    name = Column(String(200), nullable=False)
+    price = Column(Float)
+    sku = Column(String(100))
+    description = Column(Text)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    product = relationship("Product", back_populates="product_options")
+
+    def __repr__(self):
+        return f"<ProductOption(id={self.id}, product_id={self.product_id}, name='{self.name}', price={self.price})>"
+
+
+class SubscriptionPlan(Base):
+    __tablename__ = 'subscription_plans'
+
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, ForeignKey('products.id', ondelete='CASCADE'))
+    name = Column(String(200))
+    description = Column(Text)
+    frequency = Column(String(50))
+    subscription_plan_price = Column(Float)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    product = relationship("Product", back_populates="subscription_plans")
+    orders = relationship("Order", back_populates="subscription_plan")
+    subscriptions = relationship("Subscription", back_populates="subscription_plan")
+
+    def __repr__(self):
+        return f"<SubscriptionPlan(id={self.id}, product_id={self.product_id}, name='{self.name}', frequency='{self.frequency}')>"
 
 
 class Order(Base):
@@ -620,91 +670,6 @@ class PaymentPlan(Base):
 
     def __repr__(self):
         return f"<PaymentPlan(id={self.id}, name='{self.name}', frequency='{self.frequency}')>"
-
-
-class SubscriptionPlan(Base):
-    __tablename__ = 'subscription_plans'
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String(200))
-    description = Column(Text)
-    frequency = Column(String(50))
-    subscription_plan_price = Column(Float)
-    created_at = Column(DateTime, default=utc_now)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-
-    # Relationships
-    orders = relationship("Order", back_populates="subscription_plan")
-    subscriptions = relationship("Subscription", back_populates="subscription_plan")
-
-    def __repr__(self):
-        return f"<SubscriptionPlan(id={self.id}, name='{self.name}', frequency='{self.frequency}')>"
-
-
-class Task(Base):
-    __tablename__ = 'tasks'
-
-    id = Column(Integer, primary_key=True)
-    title = Column(String(200), nullable=False)
-    description = Column(Text)
-    due_date = Column(DateTime)
-    completed = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=utc_now)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-
-    # Relationships
-    contacts = relationship("Contact", secondary="contact_task", back_populates="tasks")
-
-    def __repr__(self):
-        return f"<Task(id={self.id}, title='{self.title}', due_date='{self.due_date}', completed={self.completed})>"
-
-
-class Note(Base):
-    __tablename__ = 'notes'
-
-    id = Column(Integer, primary_key=True)
-    title = Column(String(200))
-    body = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=utc_now)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-
-    # Relationships
-    contacts = relationship("Contact", secondary="contact_note", back_populates="notes")
-
-    def __repr__(self):
-        return f"<Note(id={self.id}, title='{self.title}')>"
-
-
-class Campaign(Base):
-    __tablename__ = 'campaigns'
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String(200), nullable=False)
-    status = Column(String(50))
-    created_at = Column(DateTime, default=utc_now)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-
-    # Relationships
-    sequences = relationship("CampaignSequence", secondary="campaign_sequence", back_populates="campaigns")
-
-    def __repr__(self):
-        return f"<Campaign(id={self.id}, name='{self.name}', status='{self.status}')>"
-
-
-class CampaignSequence(Base):
-    __tablename__ = 'campaign_sequences'
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String(200), nullable=False)
-    status = Column(String(50))
-    created_at = Column(DateTime, default=utc_now)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-
-    # Relationships
-    campaigns = relationship("Campaign", secondary="campaign_sequence", back_populates="sequences")
-
-    def __repr__(self):
-        return f"<CampaignSequence(id={self.id}, name='{self.name}', status='{self.status}')>"
 
 
 class Subscription(Base):
@@ -798,3 +763,52 @@ product_order_item = Table('product_order_item', Base.metadata, Column('product_
 product_subscription = Table('product_subscription', Base.metadata, Column('product_id', Integer, ForeignKey('products.id', ondelete='CASCADE'), primary_key=True), Column('subscription_id', Integer, ForeignKey('subscriptions.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
 campaign_sequence = Table('campaign_sequence', Base.metadata, Column('campaign_id', Integer, ForeignKey('campaigns.id', ondelete='CASCADE'), primary_key=True), Column('sequence_id', Integer, ForeignKey('campaign_sequences.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+
+
+class NoteType(enum.Enum):
+    CALL = "CALL"
+    EMAIL = "EMAIL"
+    FAX = "FAX"
+    LETTER = "LETTER"
+    MEETING = "MEETING"
+    OTHER = "OTHER"
+    TASK = "TASK"
+
+
+class Note(Base):
+    __tablename__ = 'notes'
+
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200))
+    body = Column(Text)
+    type = Column(Enum(NoteType))
+    user_id = Column(Integer)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    contacts = relationship("Contact", secondary="contact_note", back_populates="notes")
+    custom_field_values = relationship("NoteCustomFieldValue", back_populates="note", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<Note(id={self.id}, title='{self.title}', type='{self.type}')>"
+
+
+class NoteCustomFieldValue(Base):
+    __tablename__ = 'note_custom_field_values'
+
+    id = Column(Integer, primary_key=True)
+    note_id = Column(Integer, ForeignKey('notes.id', ondelete='CASCADE'))
+    custom_field_id = Column(Integer, ForeignKey('custom_fields.id', ondelete='CASCADE'))
+    value = Column(Text)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    note = relationship("Note", back_populates="custom_field_values")
+    custom_field = relationship("CustomField", back_populates="note_values")
+
+    __table_args__ = (UniqueConstraint('note_id', 'custom_field_id', name='uix_note_custom_field'),)
+
+    def __repr__(self):
+        return f"<NoteCustomFieldValue(id={self.id}, note_id={self.note_id}, custom_field_id={self.custom_field_id}, value='{self.value}')>"
