@@ -17,17 +17,17 @@ class TaskTransformer:
 
         # Update basic fields
         task.title = data.get('title')
-        task.description = data.get('description')
-        task.due_date = data.get('due_date')
+        task.notes = data.get('notes')
+        task.priority = data.get('priority')
         task.status = data.get('status')
-        task.last_updated = datetime.utcnow()
+        task.type = data.get('type')
+        task.due_date = data.get('due_date')
+        task.modified_at = datetime.utcnow()
 
         # Handle contact relationship
         if 'contact' in data:
             contact = db.query(Contact).filter_by(id=data['contact']['id']).first()
             if contact:
-                # Clear existing contact relationships
-                task.contacts = []
-                task.contacts.append(contact)
+                task.contact = contact
 
         return task

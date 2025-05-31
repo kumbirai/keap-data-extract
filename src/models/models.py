@@ -1,7 +1,6 @@
-import enum
 from datetime import datetime, timezone
-
-from sqlalchemy import (BigInteger, Boolean, Column, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Table, Text, UniqueConstraint)
+import enum
+from sqlalchemy import (BigInteger, Boolean, Column, Date, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Table, Text, UniqueConstraint, func)
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -12,14 +11,194 @@ def utc_now():
     return datetime.now(timezone.utc)
 
 
-# Association Tables
-contact_tag = Table('contact_tag', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id'), primary_key=True), Column('tag_id', Integer, ForeignKey('tags.id'), primary_key=True), Column('created_at', DateTime, default=utc_now))
-
-
+# Define all enums first
 class AddressType(enum.Enum):
     BILLING = "BILLING"
     SHIPPING = "SHIPPING"
     OTHER = "OTHER"
+    HOME = "HOME"
+    WORK = "WORK"
+
+
+class ContactSourceType(enum.Enum):
+    API = "API"
+    CALL = "CALL"
+    EMAIL = "EMAIL"
+    FORM = "FORM"
+    IMPORT = "IMPORT"
+    INVOICE = "INVOICE"
+    ONLINE = "ONLINE"
+    PHONE = "PHONE"
+    SMS = "SMS"
+    SYSTEM = "SYSTEM"
+    WEBSITE = "WEBSITE"
+    MANUAL = "MANUAL"
+    SOCIAL = "SOCIAL"
+    REFERRAL = "REFERRAL"
+    PARTNER = "PARTNER"
+    AFFILIATE = "AFFILIATE"
+
+
+class ContactEmailStatus(enum.Enum):
+    ACTIVE = "ACTIVE"
+    BOUNCED = "BOUNCED"
+    UNSUBSCRIBED = "UNSUBSCRIBED"
+    SPAM = "SPAM"
+    MANUAL = "MANUAL"
+    UNENGAGED_MARKETABLE = "UnengagedMarketable"
+    SINGLE_OPT_IN = "SingleOptIn"
+    DOUBLE_OPT_IN = "DoubleOptIn"
+    MARKETABLE = "MARKETABLE"
+    NON_MARKETABLE = "NON_MARKETABLE"
+    UNENGAGED = "UNENGAGED"
+    ENGAGED = "ENGAGED"
+    LIST_UNSUBSCRIBE = "ListUnsubscribe"
+    HARD_BOUNCE = "HardBounce"
+    CONFIRMED = "Confirmed"
+    SOFT_BOUNCE = "SoftBounce"
+    UNCONFIRMED = "Unconfirmed"
+    PENDING = "Pending"
+    INVALID = "Invalid"
+    BLOCKED = "Blocked"
+    UNKNOWN = "Unknown"
+
+
+class OrderSourceType(enum.Enum):
+    API = "API"
+    CALL = "CALL"
+    EMAIL = "EMAIL"
+    FORM = "FORM"
+    IMPORT = "IMPORT"
+    INVOICE = "INVOICE"
+    ONLINE = "ONLINE"
+    PHONE = "PHONE"
+    SMS = "SMS"
+    SYSTEM = "SYSTEM"
+    WEBSITE = "WEBSITE"
+    MANUAL = "MANUAL"
+    SOCIAL = "SOCIAL"
+    REFERRAL = "REFERRAL"
+    PARTNER = "PARTNER"
+    AFFILIATE = "AFFILIATE"
+
+
+class OrderStatus(enum.Enum):
+    DRAFT = "DRAFT"
+    PENDING = "PENDING"
+    PAID = "PAID"
+    REFUNDED = "REFUNDED"
+    CANCELLED = "CANCELLED"
+    FAILED = "FAILED"
+    PARTIALLY_PAID = "PARTIALLY_PAID"
+    PARTIALLY_REFUNDED = "PARTIALLY_REFUNDED"
+    VOID = "VOID"
+    PROCESSING = "PROCESSING"
+    ON_HOLD = "ON_HOLD"
+
+
+class TaskStatus(enum.Enum):
+    PENDING = "PENDING"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+    DEFERRED = "DEFERRED"
+    WAITING = "WAITING"
+    IN_PROGRESS = "IN_PROGRESS"
+
+
+class TaskPriority(enum.Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    URGENT = "URGENT"
+
+
+class OpportunityStage(enum.Enum):
+    QUALIFIED = "QUALIFIED"
+    PROPOSAL = "PROPOSAL"
+    NEGOTIATION = "NEGOTIATION"
+    CLOSED_WON = "CLOSED_WON"
+    CLOSED_LOST = "CLOSED_LOST"
+    DISCOVERY = "DISCOVERY"
+    PRESENTATION = "PRESENTATION"
+    DECISION = "DECISION"
+    CONTRACT = "CONTRACT"
+    IMPLEMENTATION = "IMPLEMENTATION"
+
+
+class SubscriptionStatus(enum.Enum):
+    ACTIVE = "ACTIVE"
+    CANCELLED = "CANCELLED"
+    EXPIRED = "EXPIRED"
+    PAUSED = "PAUSED"
+    TRIAL = "TRIAL"
+    PAST_DUE = "PAST_DUE"
+    PENDING = "PENDING"
+    FAILED = "FAILED"
+    ON_HOLD = "ON_HOLD"
+
+
+class CampaignStatus(enum.Enum):
+    DRAFT = "DRAFT"
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
+    COMPLETED = "COMPLETED"
+    ARCHIVED = "ARCHIVED"
+    SCHEDULED = "SCHEDULED"
+    STOPPED = "STOPPED"
+
+
+class AffiliateStatus(enum.Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    PENDING = "PENDING"
+    SUSPENDED = "SUSPENDED"
+    TERMINATED = "TERMINATED"
+
+
+class CustomFieldType(enum.Enum):
+    TEXT = "text"
+    NUMBER = "number"
+    DATE = "date"
+    DROPDOWN = "dropdown"
+    MULTISELECT = "multiselect"
+    RADIO = "radio"
+    CHECKBOX = "checkbox"
+    URL = "url"
+    EMAIL = "email"
+    PHONE = "phone"
+    CURRENCY = "currency"
+    PERCENT = "percent"
+    SOCIAL = "social"
+    ADDRESS = "address"
+    IMAGE = "image"
+    FILE = "file"
+    LIST = "list"
+    MULTILINE = "multiline"
+    PASSWORD = "password"
+    TIME = "time"
+    DATETIME = "datetime"
+    BOOLEAN = "boolean"
+    HIDDEN = "hidden"
+
+
+class NoteType(enum.Enum):
+    CALL = "CALL"
+    EMAIL = "EMAIL"
+    FAX = "FAX"
+    LETTER = "LETTER"
+    MEETING = "MEETING"
+    OTHER = "OTHER"
+    TASK = "TASK"
+    SMS = "SMS"
+    SOCIAL = "SOCIAL"
+    CHAT = "CHAT"
+    VOICEMAIL = "VOICEMAIL"
+    WEBSITE = "WEBSITE"
+    FORM = "FORM"
+
+
+# Association Tables
+contact_tag = Table('contact_tag', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id'), primary_key=True), Column('tag_id', Integer, ForeignKey('tags.id'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
 
 class AccountProfile(Base):
@@ -43,8 +222,8 @@ class AccountProfile(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    address = relationship("Address")
-    business_goals = relationship("BusinessGoal", back_populates="account_profile", cascade="all, delete-orphan")
+    address = relationship("Address", foreign_keys=[address_id])
+    business_goals = relationship("BusinessGoal", back_populates="account_profile", cascade="all, delete-orphan", foreign_keys="BusinessGoal.account_profile_id")
 
     def __repr__(self):
         return f"<AccountProfile(id={self.id}, name='{self.name}', business_type='{self.business_type}')>"
@@ -54,25 +233,38 @@ class Affiliate(Base):
     __tablename__ = 'affiliates'
 
     id = Column(Integer, primary_key=True)
-    code = Column(String(100), nullable=False)
     contact_id = Column(Integer, ForeignKey('contacts.id'))
-    name = Column(String(200))
-    notify_on_lead = Column(Boolean, default=False)
-    notify_on_sale = Column(Boolean, default=False)
     parent_id = Column(Integer, ForeignKey('affiliates.id'))
-    status = Column(String(50))
-    track_leads_for = Column(Integer)
-    created_at = Column(DateTime, default=utc_now)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    status = Column(Enum(AffiliateStatus))
+    code = Column(String(50))
+    name = Column(String(200))
+    email = Column(String(255))
+    company = Column(String(200))
+    website = Column(String(255))
+    phone = Column(String(50))
+    address1 = Column(String(255))
+    address2 = Column(String(255))
+    city = Column(String(100))
+    state = Column(String(100))
+    postal_code = Column(String(20))
+    country = Column(String(100))
+    tax_id = Column(String(50))
+    payment_email = Column(String(255))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    modified_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    contact = relationship("Contact")
-    parent = relationship("Affiliate", remote_side=[id])
-    commissions = relationship("AffiliateCommission", back_populates="affiliate")
-    programs = relationship("AffiliateProgram", back_populates="affiliate")
-    redirects = relationship("AffiliateRedirect", back_populates="affiliate")
-    clawbacks = relationship("AffiliateClawback", back_populates="affiliate")
-    payments = relationship("AffiliatePayment", back_populates="affiliate")
+    contact = relationship("Contact", back_populates="affiliate")
+    parent = relationship("Affiliate", remote_side=[id], back_populates="children")
+    children = relationship("Affiliate", back_populates="parent", remote_side=[parent_id])
+    commissions = relationship("AffiliateCommission", back_populates="affiliate", cascade="all, delete-orphan")
+    programs = relationship("AffiliateProgram", back_populates="affiliate", cascade="all, delete-orphan")
+    redirects = relationship("AffiliateRedirect", back_populates="affiliate", cascade="all, delete-orphan")
+    clawbacks = relationship("AffiliateClawback", back_populates="affiliate", cascade="all, delete-orphan")
+    payments = relationship("AffiliatePayment", back_populates="affiliate", cascade="all, delete-orphan")
+    summary = relationship("AffiliateSummary", back_populates="affiliate", uselist=False, cascade="all, delete-orphan")
+    lead_orders = relationship("Order", back_populates="lead_affiliate", foreign_keys="Order.lead_affiliate_id")
+    sales_orders = relationship("Order", back_populates="sales_affiliate", foreign_keys="Order.sales_affiliate_id")
 
     def __repr__(self):
         return f"<Affiliate(id={self.id}, code='{self.code}', name='{self.name}', status='{self.status}')>"
@@ -97,8 +289,8 @@ class AffiliateCommission(Base):
     created_at = Column(DateTime, default=utc_now)
 
     # Relationships
-    affiliate = relationship("Affiliate", back_populates="commissions")
-    contact = relationship("Contact")
+    affiliate = relationship("Affiliate", back_populates="commissions", foreign_keys=[affiliate_id])
+    contact = relationship("Contact", foreign_keys=[contact_id])
 
     def __repr__(self):
         return f"<AffiliateCommission(id={self.id}, affiliate_id={self.affiliate_id}, amount_earned={self.amount_earned}, date_earned='{self.date_earned}')>"
@@ -116,7 +308,7 @@ class AffiliateProgram(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    affiliate = relationship("Affiliate", back_populates="programs")
+    affiliate = relationship("Affiliate", back_populates="programs", foreign_keys=[affiliate_id])
 
     def __repr__(self):
         return f"<AffiliateProgram(id={self.id}, affiliate_id={self.affiliate_id}, name='{self.name}', priority={self.priority})>"
@@ -134,8 +326,8 @@ class AffiliateRedirect(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    affiliate = relationship("Affiliate", back_populates="redirects")
-    program_ids = relationship("AffiliateRedirectProgram", back_populates="affiliate_redirect", cascade="all, delete-orphan")
+    affiliate = relationship("Affiliate", back_populates="redirects", foreign_keys=[affiliate_id])
+    program_ids = relationship("AffiliateRedirectProgram", back_populates="affiliate_redirect", cascade="all, delete-orphan", foreign_keys="AffiliateRedirectProgram.affiliate_redirect_id")
 
     def __repr__(self):
         return f"<AffiliateRedirect(id={self.id}, affiliate_id={self.affiliate_id}, name='{self.name}', local_url_code='{self.local_url_code}')>"
@@ -153,7 +345,7 @@ class AffiliateSummary(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    affiliate = relationship("Affiliate")
+    affiliate = relationship("Affiliate", back_populates="summary", foreign_keys=[affiliate_id])
 
     def __repr__(self):
         return f"<AffiliateSummary(id={self.id}, affiliate_id={self.affiliate_id}, amount_earned={self.amount_earned}, balance={self.balance})>"
@@ -164,23 +356,23 @@ class AffiliateClawback(Base):
 
     id = Column(Integer, primary_key=True)
     affiliate_id = Column(Integer, ForeignKey('affiliates.id'))
-    amount = Column(Float)  # API uses double format
+    amount = Column(Float)
     contact_id = Column(Integer, ForeignKey('contacts.id'))
-    date_earned = Column(DateTime)  # API returns string, we store as DateTime
+    date_earned = Column(DateTime)
     description = Column(Text)
-    family_name = Column(String(100))  # API uses family_name instead of contact_last_name
-    given_name = Column(String(100))  # API uses given_name instead of contact_first_name
+    family_name = Column(String(100))
+    given_name = Column(String(100))
     invoice_id = Column(Integer)
     product_name = Column(String(200))
-    sale_affiliate_id = Column(Integer)  # API uses sale_affiliate_id
-    sold_by_family_name = Column(String(100))  # API uses sold_by_family_name
-    sold_by_given_name = Column(String(100))  # API uses sold_by_given_name
-    subscription_plan_name = Column(String(200))  # Added from API spec
+    sale_affiliate_id = Column(Integer)
+    sold_by_family_name = Column(String(100))
+    sold_by_given_name = Column(String(100))
+    subscription_plan_name = Column(String(200))
     created_at = Column(DateTime, default=utc_now)
 
     # Relationships
-    affiliate = relationship("Affiliate", back_populates="clawbacks")
-    contact = relationship("Contact")
+    affiliate = relationship("Affiliate", back_populates="clawbacks", foreign_keys=[affiliate_id])
+    contact = relationship("Contact", foreign_keys=[contact_id])
 
     def __repr__(self):
         return f"<AffiliateClawback(id={self.id}, affiliate_id={self.affiliate_id}, amount={self.amount}, date_earned='{self.date_earned}')>"
@@ -198,7 +390,7 @@ class AffiliatePayment(Base):
     created_at = Column(DateTime, default=utc_now)
 
     # Relationships
-    affiliate = relationship("Affiliate", back_populates="payments")
+    affiliate = relationship("Affiliate", back_populates="payments", foreign_keys=[affiliate_id])
 
     def __repr__(self):
         return f"<AffiliatePayment(id={self.id}, affiliate_id={self.affiliate_id}, amount={self.amount}, date='{self.date}', type='{self.type}')>"
@@ -214,7 +406,7 @@ class Contact(Base):
     company_name = Column(String(200))
     job_title = Column(String(200))
     email_opted_in = Column(Boolean, default=False)
-    email_status = Column(String(50))
+    email_status = Column(Enum(ContactEmailStatus))
     score_value = Column(String(50))
     owner_id = Column(Integer)
     created_at = Column(DateTime, default=utc_now)
@@ -227,7 +419,7 @@ class Contact(Base):
     lead_source_id = Column(Integer)
     preferred_locale = Column(String(50))
     preferred_name = Column(String(100))
-    source_type = Column(String(50))
+    source_type = Column(Enum(ContactSourceType))
     spouse_name = Column(String(100))
     time_zone = Column(String(50))
     website = Column(String(255))
@@ -239,12 +431,15 @@ class Contact(Base):
     addresses = relationship("Address", secondary="contact_address", back_populates="contacts")
     fax_numbers = relationship("FaxNumber", secondary="contact_fax", back_populates="contacts")
     tags = relationship("Tag", secondary=contact_tag, back_populates="contacts", cascade="none")
-    custom_field_values = relationship("ContactCustomFieldValue", back_populates="contact", cascade="all, delete-orphan")
-    opportunities = relationship("Opportunity", secondary="contact_opportunity", back_populates="contacts")
-    tasks = relationship("Task", secondary="contact_task", back_populates="contacts")
-    notes = relationship("Note", secondary="contact_note", back_populates="contacts")
-    orders = relationship("Order", secondary="contact_order", back_populates="contacts")
-    subscriptions = relationship("Subscription", secondary="contact_subscription", back_populates="contacts")
+    custom_field_values = relationship("ContactCustomFieldValue", back_populates="contact", cascade="all, delete-orphan", foreign_keys="ContactCustomFieldValue.contact_id")
+    opportunities = relationship("Opportunity", secondary="contact_opportunity", back_populates="contacts", cascade="none")
+    tasks = relationship("Task", secondary="contact_task", back_populates="contacts", cascade="none")
+    notes = relationship("Note", secondary="contact_note", back_populates="contacts", cascade="none")
+    orders = relationship("Order", secondary="contact_order", back_populates="contacts", cascade="none")
+    subscriptions = relationship("Subscription", secondary="contact_subscription", back_populates="contacts", cascade="none")
+    credit_cards = relationship("CreditCard", back_populates="contact", cascade="all, delete-orphan")
+    affiliate = relationship("Affiliate", back_populates="contact", uselist=False, cascade="all, delete-orphan")
+    direct_orders = relationship("Order", back_populates="contact", foreign_keys="Order.contact_id")
 
     def __repr__(self):
         return f"<Contact(id={self.id}, given_name='{self.given_name}', family_name='{self.family_name}', company_name='{self.company_name}')>"
@@ -304,39 +499,35 @@ class Address(Base):
         return f"<Address(id={self.id}, field='{self.field}', locality='{self.locality}')>"
 
 
+class TagCategory(Base):
+    __tablename__ = 'tag_categories'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False)
+    created_at = Column(DateTime, default=utc_now)
+
+    # Relationships
+    tags = relationship("Tag", back_populates="category")
+
+    def __repr__(self):
+        return f"<TagCategory(id={self.id}, name='{self.name}')>"
+
+
 class Tag(Base):
     __tablename__ = 'tags'
 
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=False)
     description = Column(Text)
-    category = Column(String(100))
+    category_id = Column(Integer, ForeignKey('tag_categories.id'))
     created_at = Column(DateTime, default=utc_now)
 
     # Relationships
+    category = relationship("TagCategory", back_populates="tags")
     contacts = relationship("Contact", secondary=contact_tag, back_populates="tags")
 
     def __repr__(self):
-        return f"<Tag(id={self.id}, name='{self.name}', category='{self.category}')>"
-
-
-class CustomFieldType(enum.Enum):
-    TEXT = "text"
-    NUMBER = "number"
-    DATE = "date"
-    DROPDOWN = "dropdown"
-    MULTISELECT = "multiselect"
-    RADIO = "radio"
-    CHECKBOX = "checkbox"
-    URL = "url"
-    EMAIL = "email"
-    PHONE = "phone"
-    CURRENCY = "currency"
-    PERCENT = "percent"
-    SOCIAL = "social"
-    ADDRESS = "address"
-    IMAGE = "image"
-    FILE = "file"
+        return f"<Tag(id={self.id}, name='{self.name}', category_id={self.category_id})>"
 
 
 class CustomFieldMetaData(Base):
@@ -354,7 +545,7 @@ class CustomFieldMetaData(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    custom_field = relationship("CustomField", back_populates="field_metadata")
+    custom_field = relationship("CustomField", back_populates="field_metadata", foreign_keys=[custom_field_id])
 
     def __repr__(self):
         return f"<CustomFieldMetaData(id={self.id}, label='{self.label}', data_type='{self.data_type}')>"
@@ -371,11 +562,12 @@ class CustomField(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    values = relationship("ContactCustomFieldValue", back_populates="custom_field", cascade="all, delete-orphan")
-    field_metadata = relationship("CustomFieldMetaData", back_populates="custom_field", uselist=False, cascade="all, delete-orphan")
-    opportunity_values = relationship("OpportunityCustomFieldValue", back_populates="custom_field", cascade="all, delete-orphan")
-    order_values = relationship("OrderCustomFieldValue", back_populates="custom_field", cascade="all, delete-orphan")
-    subscription_values = relationship("SubscriptionCustomFieldValue", back_populates="custom_field", cascade="all, delete-orphan")
+    values = relationship("ContactCustomFieldValue", back_populates="custom_field", cascade="all, delete-orphan", foreign_keys="ContactCustomFieldValue.custom_field_id")
+    field_metadata = relationship("CustomFieldMetaData", back_populates="custom_field", uselist=False, cascade="all, delete-orphan", foreign_keys="CustomFieldMetaData.custom_field_id")
+    opportunity_values = relationship("OpportunityCustomFieldValue", back_populates="custom_field", cascade="all, delete-orphan", foreign_keys="OpportunityCustomFieldValue.custom_field_id")
+    order_values = relationship("OrderCustomFieldValue", back_populates="custom_field", cascade="all, delete-orphan", foreign_keys="OrderCustomFieldValue.custom_field_id")
+    subscription_values = relationship("SubscriptionCustomFieldValue", back_populates="custom_field", cascade="all, delete-orphan", foreign_keys="SubscriptionCustomFieldValue.custom_field_id")
+    note_values = relationship("NoteCustomFieldValue", back_populates="custom_field", cascade="all, delete-orphan", foreign_keys="NoteCustomFieldValue.custom_field_id")
 
     def __repr__(self):
         return f"<CustomField(id={self.id}, name='{self.name}', type='{self.type}')>"
@@ -392,8 +584,8 @@ class ContactCustomFieldValue(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    contact = relationship("Contact", back_populates="custom_field_values")
-    custom_field = relationship("CustomField", back_populates="values")
+    contact = relationship("Contact", back_populates="custom_field_values", foreign_keys=[contact_id])
+    custom_field = relationship("CustomField", back_populates="values", foreign_keys=[custom_field_id])
 
     __table_args__ = (UniqueConstraint('contact_id', 'custom_field_id', name='uix_contact_custom_field'),)
 
@@ -412,8 +604,8 @@ class OpportunityCustomFieldValue(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    opportunity = relationship("Opportunity", back_populates="custom_field_values")
-    custom_field = relationship("CustomField", back_populates="opportunity_values")
+    opportunity = relationship("Opportunity", back_populates="custom_field_values", foreign_keys=[opportunity_id])
+    custom_field = relationship("CustomField", back_populates="opportunity_values", foreign_keys=[custom_field_id])
 
     __table_args__ = (UniqueConstraint('opportunity_id', 'custom_field_id', name='uix_opportunity_custom_field'),)
 
@@ -432,8 +624,8 @@ class OrderCustomFieldValue(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    order = relationship("Order", back_populates="custom_field_values")
-    custom_field = relationship("CustomField", back_populates="order_values")
+    order = relationship("Order", back_populates="custom_field_values", foreign_keys=[order_id])
+    custom_field = relationship("CustomField", back_populates="order_values", foreign_keys=[custom_field_id])
 
     __table_args__ = (UniqueConstraint('order_id', 'custom_field_id', name='uix_order_custom_field'),)
 
@@ -452,8 +644,8 @@ class SubscriptionCustomFieldValue(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    subscription = relationship("Subscription", back_populates="custom_field_values")
-    custom_field = relationship("CustomField", back_populates="subscription_values")
+    subscription = relationship("Subscription", back_populates="custom_field_values", foreign_keys=[subscription_id])
+    custom_field = relationship("CustomField", back_populates="subscription_values", foreign_keys=[custom_field_id])
 
     __table_args__ = (UniqueConstraint('subscription_id', 'custom_field_id', name='uix_subscription_custom_field'),)
 
@@ -465,21 +657,31 @@ class OrderItem(Base):
     __tablename__ = 'order_items'
 
     id = Column(Integer, primary_key=True)
-    order_id = Column(Integer, ForeignKey('orders.id', ondelete='CASCADE'))
-    product_id = Column(Integer, ForeignKey('products.id', ondelete='CASCADE'))
-    quantity = Column(Integer, nullable=False)
-    price = Column(Float, nullable=False)
-    description = Column(Text)  # Added from API spec
-    subscription_plan_id = Column(Integer)  # Added from API spec
-    created_at = Column(DateTime, default=utc_now)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)  # Added from API spec
+    order_id = Column(Integer, ForeignKey('orders.id'))
+    job_recurring_id = Column(Integer)
+    name = Column(String(200))
+    description = Column(Text)
+    type = Column(String(50))
+    notes = Column(Text)
+    quantity = Column(Integer)
+    cost = Column(Float)
+    price = Column(Float)
+    discount = Column(Float)
+    special_id = Column(Integer)
+    special_amount = Column(Float)
+    special_pct_or_amt = Column(Integer)
+    product_id = Column(Integer, ForeignKey('products.id'))
+    subscription_plan_id = Column(Integer, ForeignKey('subscription_plans.id'))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    modified_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    orders = relationship("Order", secondary="order_item", back_populates="items")
-    products = relationship("Product", secondary="product_order_item", back_populates="order_items")
+    order = relationship("Order", back_populates="items", foreign_keys=[order_id])
+    product = relationship("Product", back_populates="order_items", foreign_keys=[product_id])
+    subscription_plan = relationship("SubscriptionPlan", back_populates="order_items", foreign_keys=[subscription_plan_id])
 
     def __repr__(self):
-        return f"<OrderItem(id={self.id}, order_id={self.order_id}, product_id={self.product_id}, quantity={self.quantity}, price={self.price})>"
+        return f"<OrderItem(id={self.id}, order_id={self.order_id}, name='{self.name}', quantity={self.quantity}, price={self.price})>"
 
 
 class OrderPayment(Base):
@@ -498,7 +700,7 @@ class OrderPayment(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    order = relationship("Order", back_populates="payments")
+    order = relationship("Order", back_populates="payments", foreign_keys=[order_id])
 
     def __repr__(self):
         return f"<OrderPayment(id={self.id}, order_id={self.order_id}, amount={self.amount}, payment_date='{self.payment_date}', payment_type='{self.payment_type}')>"
@@ -527,7 +729,7 @@ class OrderTransaction(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    order = relationship("Order", back_populates="transactions")
+    order = relationship("Order", back_populates="transactions", foreign_keys=[order_id])
 
     def __repr__(self):
         return f"<OrderTransaction(id={self.id}, order_id={self.order_id}, amount={self.amount}, transaction_date='{self.transaction_date}', transaction_type='{self.transaction_type}')>"
@@ -538,7 +740,7 @@ class Opportunity(Base):
 
     id = Column(Integer, primary_key=True)
     title = Column(String(200), nullable=False)
-    stage = Column(String(100))
+    stage = Column(JSON)
     value = Column(Float)
     probability = Column(Float)
     created_at = Column(DateTime, default=utc_now)
@@ -554,7 +756,7 @@ class Opportunity(Base):
 
     # Relationships
     contacts = relationship("Contact", secondary="contact_opportunity", back_populates="opportunities")
-    custom_field_values = relationship("OpportunityCustomFieldValue", back_populates="opportunity", cascade="all, delete-orphan", lazy="dynamic")
+    custom_field_values = relationship("OpportunityCustomFieldValue", back_populates="opportunity", cascade="all, delete-orphan", foreign_keys="OpportunityCustomFieldValue.opportunity_id")
 
     def __repr__(self):
         return f"<Opportunity(id={self.id}, title='{self.title}', stage='{self.stage}', value={self.value})>"
@@ -564,23 +766,28 @@ class Product(Base):
     __tablename__ = 'products'
 
     id = Column(Integer, primary_key=True)
-    product_name = Column(String(200), nullable=False)
-    product_sku = Column(String(100), unique=True)
+    sku = Column(String(100))
+    active = Column(Boolean, default=True)
+    url = Column(String(255))
+    product_name = Column(String(200))
+    sub_category_id = Column(Integer, default=0)
+    product_desc = Column(Text)
+    product_price = Column(Float)
+    product_short_desc = Column(Text)
     subscription_only = Column(Boolean, default=False)
-    plan_description = Column(Text)
-    frequency = Column(String(50))
-    price = Column(Float)
-    created_at = Column(DateTime, default=utc_now)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    status = Column(Integer, default=1)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    modified_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    order_items = relationship("OrderItem", secondary="product_order_item", back_populates="products")
-    subscriptions = relationship("Subscription", secondary="product_subscription", back_populates="products")
-    product_options = relationship("ProductOption", back_populates="product", cascade="all, delete-orphan")
-    subscription_plans = relationship("SubscriptionPlan", back_populates="product", cascade="all, delete-orphan")
+    options = relationship("ProductOption", back_populates="product", cascade="all, delete-orphan")
+    subscription_plans = relationship("SubscriptionPlan", back_populates="product", foreign_keys="SubscriptionPlan.product_id", primaryjoin="Product.id==SubscriptionPlan.product_id")
+    direct_orders = relationship("Order", back_populates="product", foreign_keys="Order.product_id")
+    order_items = relationship("OrderItem", back_populates="product", foreign_keys="OrderItem.product_id")
+    subscriptions = relationship("Subscription", secondary="product_subscription", back_populates="products", lazy="dynamic")
 
     def __repr__(self):
-        return f"<Product(id={self.id}, product_name='{self.product_name}', product_sku='{self.product_sku}', price={self.price})>"
+        return f"<Product(id={self.id}, product_name='{self.product_name}', sku='{self.sku}')>"
 
 
 class ProductOption(Base):
@@ -596,10 +803,31 @@ class ProductOption(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    product = relationship("Product", back_populates="product_options")
+    product = relationship("Product", back_populates="options", foreign_keys=[product_id])
 
     def __repr__(self):
         return f"<ProductOption(id={self.id}, product_id={self.product_id}, name='{self.name}', price={self.price})>"
+
+
+class Subscription(Base):
+    __tablename__ = 'subscriptions'
+
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, ForeignKey('products.id', ondelete='CASCADE'))
+    subscription_plan_id = Column(Integer, ForeignKey('subscription_plans.id'))
+    status = Column(Enum(SubscriptionStatus))
+    next_bill_date = Column(DateTime)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    contacts = relationship("Contact", secondary="contact_subscription", back_populates="subscriptions")
+    products = relationship("Product", secondary="product_subscription", back_populates="subscriptions", lazy="dynamic")
+    subscription_plan = relationship("SubscriptionPlan", back_populates="subscriptions", foreign_keys=[subscription_plan_id])
+    custom_field_values = relationship("SubscriptionCustomFieldValue", back_populates="subscription", cascade="all, delete-orphan", foreign_keys="SubscriptionCustomFieldValue.subscription_id")
+
+    def __repr__(self):
+        return f"<Subscription(id={self.id}, product_id={self.product_id}, status='{self.status}', next_bill_date='{self.next_bill_date}')>"
 
 
 class SubscriptionPlan(Base):
@@ -615,80 +843,136 @@ class SubscriptionPlan(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    product = relationship("Product", back_populates="subscription_plans")
-    orders = relationship("Order", back_populates="subscription_plan")
-    subscriptions = relationship("Subscription", back_populates="subscription_plan")
+    product = relationship("Product", back_populates="subscription_plans", foreign_keys=[product_id], primaryjoin="SubscriptionPlan.product_id==Product.id")
+    orders = relationship("Order", back_populates="subscription_plan", foreign_keys="Order.subscription_plan_id")
+    subscriptions = relationship("Subscription", back_populates="subscription_plan", foreign_keys="Subscription.subscription_plan_id")
+    order_items = relationship("OrderItem", back_populates="subscription_plan", foreign_keys="OrderItem.subscription_plan_id")
 
     def __repr__(self):
         return f"<SubscriptionPlan(id={self.id}, product_id={self.product_id}, name='{self.name}', frequency='{self.frequency}')>"
+
+
+class PaymentGateway(Base):
+    __tablename__ = 'payment_gateways'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False)
+    type = Column(String(50))
+    is_active = Column(Boolean, default=True)
+    credentials = Column(JSON)
+    settings = Column(JSON)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    orders = relationship("Order", back_populates="payment_gateway", foreign_keys="Order.payment_gateway_id")
+
+    def __repr__(self):
+        return f"<PaymentGateway(id={self.id}, name='{self.name}', type='{self.type}')>"
+
+
+class ShippingInformation(Base):
+    __tablename__ = 'shipping_information'
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey('orders.id'))
+    first_name = Column(String(100))
+    middle_name = Column(String(100))
+    last_name = Column(String(100))
+    company = Column(String(200))
+    phone = Column(String(50))
+    street1 = Column(String(255))
+    street2 = Column(String(255))
+    city = Column(String(100))
+    state = Column(String(100))
+    zip = Column(String(20))
+    country = Column(String(100))
+    invoice_to_company = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    modified_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    order = relationship("Order", back_populates="shipping_information", foreign_keys=[order_id])
+
+    def __repr__(self):
+        return f"<ShippingInformation(id={self.id}, order_id={self.order_id}, name='{self.first_name} {self.last_name}')>"
 
 
 class Order(Base):
     __tablename__ = 'orders'
 
     id = Column(Integer, primary_key=True)
-    order_number = Column(String(50))
-    order_date = Column(DateTime, nullable=False)
-    order_status = Column(String(50))
-    order_total = Column(Float)
+    title = Column(String(200))
+    status = Column(Enum(OrderStatus))
+    recurring = Column(Boolean)
+    total = Column(Float)
+    notes = Column(Text)
+    terms = Column(Text)
     order_type = Column(String(50))
-    payment_plan_id = Column(Integer)
-    payment_type = Column(String(50))
-    subscription_plan_id = Column(Integer)
-    shipping_information = Column(JSON)  # Store shipping info as JSON
-    payment_gateway = Column(JSON)  # Store payment gateway info as JSON
-    created_at = Column(DateTime, default=utc_now)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    source_type = Column(Enum(OrderSourceType))
+    creation_date = Column(DateTime(timezone=True))
+    modification_date = Column(DateTime(timezone=True))
+    order_date = Column(DateTime(timezone=True))
+    lead_affiliate_id = Column(Integer, ForeignKey('affiliates.id'))
+    sales_affiliate_id = Column(Integer, ForeignKey('affiliates.id'))
+    total_paid = Column(Float)
+    total_due = Column(Float)
+    refund_total = Column(Float)
+    allow_payment = Column(Boolean)
+    allow_paypal = Column(Boolean)
+    invoice_number = Column(Integer)
+    contact_id = Column(Integer, ForeignKey('contacts.id'))
+    product_id = Column(Integer, ForeignKey('products.id'))
+    payment_gateway_id = Column(Integer, ForeignKey('payment_gateways.id'))
+    subscription_plan_id = Column(Integer, ForeignKey('subscription_plans.id'))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    modified_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
+    items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan", foreign_keys="OrderItem.order_id")
+    shipping_information = relationship("ShippingInformation", back_populates="order", uselist=False, cascade="all, delete-orphan")
+    payment_plan = relationship("PaymentPlan", back_populates="order", uselist=False, cascade="all, delete-orphan")
     contacts = relationship("Contact", secondary="contact_order", back_populates="orders")
-    items = relationship("OrderItem", secondary="order_item", back_populates="orders")
-    custom_field_values = relationship("OrderCustomFieldValue", back_populates="order", cascade="all, delete-orphan")
-    payment_plan = relationship("PaymentPlan", back_populates="orders")
-    subscription_plan = relationship("SubscriptionPlan", back_populates="orders")
-    payments = relationship("OrderPayment", back_populates="order")
-    transactions = relationship("OrderTransaction", back_populates="order")
+    custom_field_values = relationship("OrderCustomFieldValue", back_populates="order", cascade="all, delete-orphan", foreign_keys="OrderCustomFieldValue.order_id")
+    payments = relationship("OrderPayment", back_populates="order", cascade="all, delete-orphan", foreign_keys="OrderPayment.order_id")
+    transactions = relationship("OrderTransaction", back_populates="order", cascade="all, delete-orphan", foreign_keys="OrderTransaction.order_id")
+    subscription_plan = relationship("SubscriptionPlan", back_populates="orders", foreign_keys=[subscription_plan_id])
+    payment_gateway = relationship("PaymentGateway", back_populates="orders", foreign_keys=[payment_gateway_id])
+    contact = relationship("Contact", foreign_keys=[contact_id], back_populates="direct_orders")
+    product = relationship("Product", foreign_keys=[product_id], back_populates="direct_orders")
+    lead_affiliate = relationship("Affiliate", foreign_keys=[lead_affiliate_id], back_populates="lead_orders")
+    sales_affiliate = relationship("Affiliate", foreign_keys=[sales_affiliate_id], back_populates="sales_orders")
 
     def __repr__(self):
-        return f"<Order(id={self.id}, order_number='{self.order_number}', order_status='{self.order_status}', order_total={self.order_total})>"
+        return f"<Order(id={self.id}, title='{self.title}', status='{self.status}', total={self.total})>"
 
 
 class PaymentPlan(Base):
     __tablename__ = 'payment_plans'
 
     id = Column(Integer, primary_key=True)
-    name = Column(String(200))
-    description = Column(Text)
-    frequency = Column(String(50))
+    order_id = Column(Integer, ForeignKey('orders.id'))
+    auto_charge = Column(Boolean)
+    credit_card_id = Column(Integer)
+    days_between_payments = Column(Integer)
+    initial_payment_amount = Column(Float)
+    initial_payment_percent = Column(Float)
+    initial_payment_date = Column(Date)
     number_of_payments = Column(Integer)
-    payment_amount = Column(Float)
-    created_at = Column(DateTime, default=utc_now)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    merchant_account_id = Column(Integer)
+    merchant_account_name = Column(String(200))
+    plan_start_date = Column(Date)
+    payment_method_id = Column(String(50))
+    max_charge_attempts = Column(Integer)
+    days_between_retries = Column(Integer)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    modified_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    orders = relationship("Order", back_populates="payment_plan")
+    order = relationship("Order", back_populates="payment_plan", foreign_keys=[order_id])
 
     def __repr__(self):
-        return f"<PaymentPlan(id={self.id}, name='{self.name}', frequency='{self.frequency}')>"
-
-
-class Subscription(Base):
-    __tablename__ = 'subscriptions'
-
-    id = Column(Integer, primary_key=True)
-    product_id = Column(Integer, ForeignKey('products.id', ondelete='CASCADE'))
-    status = Column(String(50))
-    next_bill_date = Column(DateTime)
-    created_at = Column(DateTime, default=utc_now)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-
-    # Relationships
-    contacts = relationship("Contact", secondary="contact_subscription", back_populates="subscriptions")
-    products = relationship("Product", secondary="product_subscription", back_populates="subscriptions")
-    custom_field_values = relationship("SubscriptionCustomFieldValue", back_populates="subscription", cascade="all, delete-orphan")
-
-    def __repr__(self):
-        return f"<Subscription(id={self.id}, product_id={self.product_id}, status='{self.status}', next_bill_date='{self.next_bill_date}')>"
+        return f"<PaymentPlan(id={self.id}, order_id={self.order_id}, number_of_payments={self.number_of_payments})>"
 
 
 class FaxNumber(Base):
@@ -716,10 +1000,46 @@ class BusinessGoal(Base):
     created_at = Column(DateTime, default=utc_now)
 
     # Relationships
-    account_profile = relationship("AccountProfile", back_populates="business_goals")
+    account_profile = relationship("AccountProfile", back_populates="business_goals", foreign_keys=[account_profile_id])
 
     def __repr__(self):
-        return f"<BusinessGoal(id={self.id}, account_profile_id={self.account_profile_id}, goal='{self.goal}')>"
+        return f"<BusinessGoal(id={self.id}, goal='{self.goal}')>"
+
+
+class Campaign(Base):
+    __tablename__ = 'campaigns'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    status = Column(Enum(CampaignStatus))
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    sequences = relationship("CampaignSequence", back_populates="campaign", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<Campaign(id={self.id}, name='{self.name}', status='{self.status}')>"
+
+
+class CampaignSequence(Base):
+    __tablename__ = 'campaign_sequences'
+
+    id = Column(Integer, primary_key=True)
+    campaign_id = Column(Integer, ForeignKey('campaigns.id', ondelete='CASCADE'))
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    status = Column(String(50))
+    sequence_number = Column(Integer)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    campaign = relationship("Campaign", back_populates="sequences")
+
+    def __repr__(self):
+        return f"<CampaignSequence(id={self.id}, campaign_id={self.campaign_id}, name='{self.name}', sequence_number={self.sequence_number})>"
 
 
 class AffiliateRedirectProgram(Base):
@@ -731,7 +1051,7 @@ class AffiliateRedirectProgram(Base):
     created_at = Column(DateTime, default=utc_now)
 
     # Relationships
-    affiliate_redirect = relationship("AffiliateRedirect", back_populates="program_ids")
+    affiliate_redirect = relationship("AffiliateRedirect", back_populates="program_ids", foreign_keys=[affiliate_redirect_id])
 
     def __repr__(self):
         return f"<AffiliateRedirectProgram(id={self.id}, affiliate_redirect_id={self.affiliate_redirect_id}, program_id={self.program_id})>"
@@ -765,30 +1085,21 @@ product_subscription = Table('product_subscription', Base.metadata, Column('prod
 campaign_sequence = Table('campaign_sequence', Base.metadata, Column('campaign_id', Integer, ForeignKey('campaigns.id', ondelete='CASCADE'), primary_key=True), Column('sequence_id', Integer, ForeignKey('campaign_sequences.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
 
-class NoteType(enum.Enum):
-    CALL = "CALL"
-    EMAIL = "EMAIL"
-    FAX = "FAX"
-    LETTER = "LETTER"
-    MEETING = "MEETING"
-    OTHER = "OTHER"
-    TASK = "TASK"
-
-
 class Note(Base):
     __tablename__ = 'notes'
 
     id = Column(Integer, primary_key=True)
+    contact_id = Column(Integer, ForeignKey('contacts.id'))
     title = Column(String(200))
     body = Column(Text)
-    type = Column(Enum(NoteType))
-    user_id = Column(Integer)
-    created_at = Column(DateTime, default=utc_now)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+    type = Column(String(50))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    modified_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
+    contact = relationship("Contact", back_populates="notes")
     contacts = relationship("Contact", secondary="contact_note", back_populates="notes")
-    custom_field_values = relationship("NoteCustomFieldValue", back_populates="note", cascade="all, delete-orphan")
+    custom_field_values = relationship("NoteCustomFieldValue", back_populates="note", cascade="all, delete-orphan", foreign_keys="NoteCustomFieldValue.note_id")
 
     def __repr__(self):
         return f"<Note(id={self.id}, title='{self.title}', type='{self.type}')>"
@@ -805,10 +1116,53 @@ class NoteCustomFieldValue(Base):
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    note = relationship("Note", back_populates="custom_field_values")
-    custom_field = relationship("CustomField", back_populates="note_values")
+    note = relationship("Note", back_populates="custom_field_values", foreign_keys=[note_id])
+    custom_field = relationship("CustomField", back_populates="note_values", foreign_keys=[custom_field_id])
 
     __table_args__ = (UniqueConstraint('note_id', 'custom_field_id', name='uix_note_custom_field'),)
 
     def __repr__(self):
         return f"<NoteCustomFieldValue(id={self.id}, note_id={self.note_id}, custom_field_id={self.custom_field_id}, value='{self.value}')>"
+
+
+class Task(Base):
+    __tablename__ = 'tasks'
+
+    id = Column(Integer, primary_key=True)
+    contact_id = Column(Integer, ForeignKey('contacts.id'))
+    title = Column(String(200))
+    notes = Column(Text)
+    priority = Column(Enum(TaskPriority))
+    status = Column(Enum(TaskStatus))
+    type = Column(String(50))
+    due_date = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    modified_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    contact = relationship("Contact", foreign_keys=[contact_id], back_populates="tasks")
+    contacts = relationship("Contact", secondary="contact_task", back_populates="tasks")
+
+    def __repr__(self):
+        return f"<Task(id={self.id}, title='{self.title}', status='{self.status}', priority='{self.priority}')>"
+
+
+class CreditCard(Base):
+    __tablename__ = 'credit_cards'
+
+    id = Column(Integer, primary_key=True)
+    contact_id = Column(Integer, ForeignKey('contacts.id'))
+    card_type = Column(String(50))
+    card_number = Column(String(20))  # Changed from String(4) to handle masked numbers
+    expiration_month = Column(Integer)
+    expiration_year = Column(Integer)
+    card_holder_name = Column(String(100))
+    is_default = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    contact = relationship("Contact", back_populates="credit_cards")
+
+    def __repr__(self):
+        return f"<CreditCard(id={self.id}, contact_id={self.contact_id}, card_type='{self.card_type}', card_number='{self.card_number}')>"

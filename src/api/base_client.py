@@ -111,6 +111,7 @@ class KeapBaseClient:
         try:
             logger.debug(f"Making {method} request to {url}")
             response = self.session.request(method=method, url=url, params=params)
+            logger.debug(f"Response: {response}")
             return self._handle_response(response)
         except Exception as e:
             logger.error(f"Request failed: {str(e)}")

@@ -18,9 +18,12 @@ class OrderTransformer:
         # Update basic fields
         order.order_number = data.get('order_number')
         order.order_date = data.get('order_date')
-        order.total = data.get('total')
-        order.status = data.get('status')
-        order.last_updated = datetime.utcnow()
+        order.order_total = data.get('total')
+        order.order_status = data.get('status')
+        order.order_type = data.get('order_type')
+        order.shipping_information = data.get('shipping_information')
+        order.payment_gateway = data.get('payment_gateway')
+        order.modified_at = datetime.utcnow()
 
         # Handle contact relationship
         if 'contact' in data:
@@ -36,16 +39,16 @@ class OrderTransformer:
             order.items = []
             for item_data in data['items']:
                 # Create or update order item
-                order_item = OrderItem(id=item_data['id'], quantity=item_data.get('quantity'), price=item_data.get('price'))
+                order_item = OrderItem(id=item_data[
+                    'id'], order_id=order.id, quantity=item_data.get('quantity'), price=item_data.get('price'), description=item_data.get('description'), subscription_plan_id=item_data.get('subscription_plan_id'))
                 db.add(order_item)
-                order.items.append(order_item)
 
                 # Handle product relationship
                 if 'product' in item_data:
                     product = db.query(Product).filter_by(id=item_data['product']['id']).first()
                     if product:
-                        # Clear existing product relationships
-                        order_item.products = []
-                        order_item.products.append(product)
+                        order_item.product_id = product.id
+
+                order.items.append(order_item)
 
         return order

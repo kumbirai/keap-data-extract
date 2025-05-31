@@ -97,10 +97,20 @@ class KeapClient(KeapBaseClient):
             - List of Tag objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        response = self.get('tags', params)
-        logger.debug(f"Raw tags API response: {response}")
-        return transform_list_response(response, transform_tag)
+        try:
+            params = {'limit': limit, 'offset': offset, 'order': 'id'}
+            response = self.get('tags', params)
+            logger.debug(f"Raw tags API response: {response}")
+            
+            if not response:
+                logger.warning("Empty response received from tags API")
+                return [], {'next': None, 'previous': None, 'count': 0, 'limit': limit, 'offset': offset}
+            
+            return transform_list_response(response, transform_tag)
+        
+        except Exception as e:
+            logger.error(f"Error fetching tags: {str(e)}")
+            return [], {'next': None, 'previous': None, 'count': 0, 'limit': limit, 'offset': offset}
 
     def get_contact_model(self) -> Dict[str, Any]:
         """Get the contact model definition from the API.
@@ -198,13 +208,14 @@ class KeapClient(KeapBaseClient):
 
         return all_custom_fields
 
-    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Opportunity], Dict[str, Any]]:
+    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Opportunity], Dict[str, Any]]:
         """Get a list of opportunities.
         
         Args:
             contact_id: Optional contact ID to filter by
             limit: Maximum number of opportunities to return
             offset: Offset for pagination
+            db_session: Optional database session for processing related data
             
         Returns:
             Tuple containing:
@@ -217,13 +228,14 @@ class KeapClient(KeapBaseClient):
         response = self.get('opportunities', params)
         return transform_list_response(response, transform_opportunity)
 
-    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None) -> Tuple[List[Product], Dict[str, Any]]:
+    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None, db_session=None) -> Tuple[List[Product], Dict[str, Any]]:
         """Get a list of products.
         
         Args:
             limit: Maximum number of products to return
             offset: Offset for pagination
             subscription_only: Optional flag to filter subscription products
+            db_session: Optional database session for processing related data
             
         Returns:
             Tuple containing:
@@ -241,13 +253,14 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'products/{product_id}')
         return transform_product(response)
 
-    def get_orders(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Order], Dict[str, Any]]:
+    def get_orders(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Order], Dict[str, Any]]:
         """Get a list of orders.
         
         Args:
             contact_id: Optional contact ID to filter by
             limit: Maximum number of orders to return
             offset: Offset for pagination
+            db_session: Optional database session for processing related data
             
         Returns:
             Tuple containing:
@@ -312,60 +325,99 @@ class KeapClient(KeapBaseClient):
             logger.error(f"Error getting transactions for order {order_id}: {str(e)}")
             return []
 
-    def get_tasks(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Task], Dict[str, Any]]:
+    def get_tasks(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Task], Dict[str, Any]]:
         """Get a list of tasks.
         
         Args:
             contact_id: Optional contact ID to filter by
             limit: Maximum number of tasks to return
             offset: Offset for pagination
+            db_session: Optional database session for processing related data
             
         Returns:
             Tuple containing:
             - List of Task objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        if contact_id:
-            params['contact_id'] = contact_id
-        response = self.get('tasks', params)
-        return transform_list_response(response, transform_task)
+        try:
+            params = {'limit': limit, 'offset': offset}
+
+            if contact_id:
+                params['contact_id'] = contact_id
+
+            # Get tasks directly from the tasks endpoint
+            response = self.get('tasks', params)
+            return transform_list_response(response, transform_task)
+        except Exception as e:
+            logger.error(f"Error fetching tasks: {str(e)}")
+            return [], {'next': None, 'count': 0, 'total': 0}
 
     def get_task(self, task_id: int) -> Task:
-        """Get a single task by ID."""
-        response = self.get(f'tasks/{task_id}')
-        return transform_task(response)
+        """Get a single task by ID.
+        
+        Args:
+            task_id: The ID of the task to retrieve
+            
+        Returns:
+            Task object
+        """
+        try:
+            response = self.get(f'tasks/{task_id}')
+            return transform_task(response)
+        except Exception as e:
+            logger.error(f"Error fetching task {task_id}: {str(e)}")
+            raise
 
-    def get_notes(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Note], Dict[str, Any]]:
+    def get_notes(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Note], Dict[str, Any]]:
         """Get a list of notes.
         
         Args:
             contact_id: Optional contact ID to filter by
             limit: Maximum number of notes to return
             offset: Offset for pagination
+            db_session: Optional database session for processing related data
             
         Returns:
             Tuple containing:
             - List of Note objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        if contact_id:
-            params['contact_id'] = contact_id
-        response = self.get('notes', params)
-        return transform_list_response(response, transform_note)
+        try:
+            params = {'limit': limit, 'offset': offset, 'order': 'id'}
+
+            if contact_id:
+                params['contact_id'] = contact_id
+
+            # Get notes directly from the notes endpoint
+            response = self.get('notes', params)
+            return transform_list_response(response, transform_note)
+        except Exception as e:
+            logger.error(f"Error fetching notes: {str(e)}")
+            return [], {'next': None, 'count': 0, 'total': 0}
 
     def get_note(self, note_id: int) -> Note:
-        """Get a single note by ID."""
-        response = self.get(f'notes/{note_id}')
-        return transform_note(response)
+        """Get a single note by ID.
+        
+        Args:
+            note_id: The ID of the note to retrieve
+            
+        Returns:
+            Note object
+        """
+        try:
+            response = self.get(f'notes/{note_id}')
+            return transform_note(response)
+        except Exception as e:
+            logger.error(f"Error fetching note {note_id}: {str(e)}")
+            raise
 
-    def get_campaigns(self, limit: int = 50, offset: int = 0) -> Tuple[List[Campaign], Dict[str, Any]]:
+    def get_campaigns(self, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Campaign], Dict[str, Any]]:
         """Get a list of campaigns.
         
         Args:
             limit: Maximum number of campaigns to return
             offset: Offset for pagination
+            db_session: Optional database session for processing related data
             
         Returns:
             Tuple containing:
@@ -390,13 +442,14 @@ class KeapClient(KeapBaseClient):
             logger.warning(f"No sequences found for campaign {campaign_id}")
             return []
 
-    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Subscription], Dict[str, Any]]:
+    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Subscription], Dict[str, Any]]:
         """Get a list of subscriptions.
         
         Args:
             contact_id: Optional contact ID to filter by
             limit: Maximum number of subscriptions to return
             offset: Offset for pagination
+            db_session: Optional database session for processing related data
             
         Returns:
             Tuple containing:
@@ -419,8 +472,19 @@ class KeapClient(KeapBaseClient):
         response = self.get('account/profile')
         return transform_account_profile(response)
 
-    def get_affiliates(self, limit: int = 50, offset: int = 0) -> List[Affiliate]:
-        """Get a list of affiliates."""
+    def get_affiliates(self, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Affiliate], Dict[str, Any]]:
+        """Get a list of affiliates.
+        
+        Args:
+            limit: Maximum number of affiliates to return
+            offset: Offset for pagination
+            db_session: Optional database session for processing related data
+            
+        Returns:
+            Tuple containing:
+            - List of Affiliate objects
+            - Dictionary containing pagination metadata
+        """
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get('affiliates', params)
         return transform_list_response(response, transform_affiliate)
@@ -430,20 +494,53 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'affiliates/{affiliate_id}')
         return transform_affiliate(response)
 
-    def get_affiliate_commissions(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[AffiliateCommission]:
-        """Get commissions for an affiliate."""
+    def get_affiliate_commissions(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> Tuple[List[AffiliateCommission], Dict[str, Any]]:
+        """Get commissions for an affiliate.
+        
+        Args:
+            affiliate_id: The ID of the affiliate
+            limit: Maximum number of commissions to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple containing:
+            - List of AffiliateCommission objects
+            - Dictionary containing pagination metadata
+        """
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get(f'affiliates/{affiliate_id}/commissions', params)
         return transform_list_response(response, transform_affiliate_commission)
 
-    def get_affiliate_programs(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[AffiliateProgram]:
-        """Get programs for an affiliate."""
+    def get_affiliate_programs(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> Tuple[List[AffiliateProgram], Dict[str, Any]]:
+        """Get programs for an affiliate.
+        
+        Args:
+            affiliate_id: The ID of the affiliate
+            limit: Maximum number of programs to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple containing:
+            - List of AffiliateProgram objects
+            - Dictionary containing pagination metadata
+        """
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get(f'affiliates/{affiliate_id}/programs', params)
         return transform_list_response(response, transform_affiliate_program)
 
-    def get_affiliate_redirects(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[AffiliateRedirect]:
-        """Get redirects for an affiliate."""
+    def get_affiliate_redirects(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> Tuple[List[AffiliateRedirect], Dict[str, Any]]:
+        """Get redirects for an affiliate.
+        
+        Args:
+            affiliate_id: The ID of the affiliate
+            limit: Maximum number of redirects to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple containing:
+            - List of AffiliateRedirect objects
+            - Dictionary containing pagination metadata
+        """
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get(f'affiliates/{affiliate_id}/redirects', params)
         return transform_list_response(response, transform_affiliate_redirect)
@@ -453,27 +550,97 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'affiliates/{affiliate_id}/summary')
         return transform_affiliate_summary(response)
 
-    def get_affiliate_clawbacks(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[AffiliateClawback]:
-        """Get clawbacks for an affiliate."""
+    def get_affiliate_clawbacks(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> Tuple[List[AffiliateClawback], Dict[str, Any]]:
+        """Get clawbacks for an affiliate.
+        
+        Args:
+            affiliate_id: The ID of the affiliate
+            limit: Maximum number of clawbacks to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple containing:
+            - List of AffiliateClawback objects
+            - Dictionary containing pagination metadata
+        """
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get(f'affiliates/{affiliate_id}/clawbacks', params)
         return transform_list_response(response, transform_affiliate_clawback)
 
-    def get_affiliate_payments(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> List[AffiliatePayment]:
-        """Get payments for an affiliate."""
+    def get_affiliate_payments(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> Tuple[List[AffiliatePayment], Dict[str, Any]]:
+        """Get payments for an affiliate.
+        
+        Args:
+            affiliate_id: The ID of the affiliate
+            limit: Maximum number of payments to return
+            offset: Offset for pagination
+            
+        Returns:
+            Tuple containing:
+            - List of AffiliatePayment objects
+            - Dictionary containing pagination metadata
+        """
         params = {'limit': limit, 'offset': offset, 'order': 'id'}
         response = self.get(f'affiliates/{affiliate_id}/payments', params)
         return transform_list_response(response, transform_affiliate_payment)
 
-    def get_contact_tags(self, contact_id: int) -> List[Tag]:
+    def get_contact_tags(self, contact_id: int) -> Tuple[List[Tag], Dict[str, Any]]:
         """Get a list of tags applied to a specific contact.
         
         Args:
             contact_id: The ID of the contact to get tags for
             
         Returns:
-            List of Tag objects
+            Tuple containing:
+            - List of Tag objects
+            - Dictionary containing pagination metadata
         """
         response = self.get(f'contacts/{contact_id}/tags')
         # Use a different transformer for the applied tags response
-        return [transform_applied_tag(tag_data) for tag_data in response.get('tags', [])]
+        items = [transform_applied_tag(tag_data) for tag_data in response.get('tags', [])]
+        pagination = {'next': None, 'count': len(items), 'total': len(items)}
+        return items, pagination
+
+    def get_contact_credit_cards(self, contact_id: int) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """Get credit cards for a specific contact.
+        
+        Args:
+            contact_id: The ID of the contact
+            
+        Returns:
+            Tuple containing:
+            - List of credit card dictionaries
+            - Dictionary containing pagination metadata
+        """
+        try:
+            endpoint = f"contacts/{contact_id}/creditCards"
+            response = self._make_request('GET', endpoint)
+            
+            # The API returns a list directly, not wrapped in an object
+            if isinstance(response, list):
+                items = response
+            # If it's wrapped in an object, try to get the creditCards field
+            elif isinstance(response, dict):
+                items = response.get('creditCards', [])
+            else:
+                logger.warning(f"Unexpected response format for credit cards: {response}")
+                items = []
+            
+            # Transform each credit card item
+            transformed_items = []
+            for item in items:
+                try:
+                    # Add contact_id to each credit card item
+                    if isinstance(item, dict):
+                        item['contact_id'] = contact_id
+                        transformed_items.append(item)
+                except Exception as e:
+                    logger.error(f"Error transforming credit card item: {str(e)}")
+                    continue
+            
+            pagination = {'next': None, 'count': len(transformed_items), 'total': len(transformed_items)}
+            return transformed_items, pagination
+            
+        except Exception as e:
+            logger.error(f"Error fetching credit cards for contact {contact_id}: {str(e)}")
+            return [], {'next': None, 'count': 0, 'total': 0}
