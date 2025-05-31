@@ -5,11 +5,11 @@ from urllib.parse import parse_qs, urlparse
 from .base_client import KeapBaseClient
 from .exceptions import KeapNotFoundError
 from ..models.models import (AccountProfile, Affiliate, AffiliateClawback, AffiliateCommission, AffiliatePayment, AffiliateProgram, AffiliateRedirect, AffiliateSummary, Campaign, CampaignSequence,
-                             Contact, CustomField, Note, Opportunity, Order, OrderItem, Product, Subscription, Tag, Task)
+                             Contact, CustomField, Note, Opportunity, Order, OrderItem, Product, Subscription, Tag, Task, OrderPayment, OrderTransaction)
 from ..utils.transformers import (transform_account_profile, transform_affiliate, transform_affiliate_clawback, transform_affiliate_commission, transform_affiliate_payment,
                                   transform_affiliate_program, transform_affiliate_redirect, transform_affiliate_summary, transform_applied_tag, transform_campaign, transform_campaign_sequence,
                                   transform_contact_with_related, transform_custom_field, transform_list_response, transform_note, transform_opportunity, transform_order_item,
-                                  transform_order_with_items, transform_product, transform_subscription, transform_tag, transform_task)
+                                  transform_order_with_items, transform_product, transform_subscription, transform_tag, transform_task, transform_order_payment, transform_order_transaction)
 
 logger = logging.getLogger(__name__)
 
@@ -272,6 +272,44 @@ class KeapClient(KeapBaseClient):
             return transform_list_response(response, transform_order_item)
         except KeapNotFoundError:
             logger.warning(f"No items found for order {order_id}")
+            return []
+
+    def get_order_payments(self, order_id: int) -> List[OrderPayment]:
+        """Get payments for a specific order.
+        
+        Args:
+            order_id: The ID of the order to get payments for
+            
+        Returns:
+            List of OrderPayment objects
+        """
+        try:
+            response = self._make_request('GET', f'orders/{order_id}/payments')
+            if not response:
+                logger.warning(f"No payments found for order {order_id}")
+                return []
+            return [transform_order_payment(payment) for payment in response]
+        except Exception as e:
+            logger.error(f"Error getting payments for order {order_id}: {str(e)}")
+            return []
+
+    def get_order_transactions(self, order_id: int) -> List[OrderTransaction]:
+        """Get transactions for a specific order.
+        
+        Args:
+            order_id: The ID of the order to get transactions for
+            
+        Returns:
+            List of OrderTransaction objects
+        """
+        try:
+            response = self._make_request('GET', f'orders/{order_id}/transactions')
+            if not response:
+                logger.warning(f"No transactions found for order {order_id}")
+                return []
+            return [transform_order_transaction(transaction) for transaction in response]
+        except Exception as e:
+            logger.error(f"Error getting transactions for order {order_id}: {str(e)}")
             return []
 
     def get_tasks(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Task], Dict[str, Any]]:

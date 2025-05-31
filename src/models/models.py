@@ -13,8 +13,7 @@ def utc_now():
 
 
 # Association Tables
-contact_tag = Table('contact_tag', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id'), primary_key=True), Column('tag_id', Integer, ForeignKey('tags.id'), primary_key=True),
-                    Column('created_at', DateTime, default=utc_now))
+contact_tag = Table('contact_tag', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id'), primary_key=True), Column('tag_id', Integer, ForeignKey('tags.id'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
 
 class AddressType(enum.Enum):
@@ -462,6 +461,78 @@ class SubscriptionCustomFieldValue(Base):
         return f"<SubscriptionCustomFieldValue(id={self.id}, subscription_id={self.subscription_id}, custom_field_id={self.custom_field_id}, value='{self.value}')>"
 
 
+class OrderItem(Base):
+    __tablename__ = 'order_items'
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey('orders.id', ondelete='CASCADE'))
+    product_id = Column(Integer, ForeignKey('products.id', ondelete='CASCADE'))
+    quantity = Column(Integer, nullable=False)
+    price = Column(Float, nullable=False)
+    description = Column(Text)  # Added from API spec
+    subscription_plan_id = Column(Integer)  # Added from API spec
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)  # Added from API spec
+
+    # Relationships
+    orders = relationship("Order", secondary="order_item", back_populates="items")
+    products = relationship("Product", secondary="product_order_item", back_populates="order_items")
+
+    def __repr__(self):
+        return f"<OrderItem(id={self.id}, order_id={self.order_id}, product_id={self.product_id}, quantity={self.quantity}, price={self.price})>"
+
+
+class OrderPayment(Base):
+    __tablename__ = 'order_payments'
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey('orders.id', ondelete='CASCADE'))
+    amount = Column(Float, nullable=False)
+    payment_date = Column(DateTime, nullable=False)
+    payment_type = Column(String(50))
+    payment_status = Column(String(50))
+    payment_gateway = Column(String(50))
+    transaction_id = Column(String(100))
+    notes = Column(Text)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    order = relationship("Order", back_populates="payments")
+
+    def __repr__(self):
+        return f"<OrderPayment(id={self.id}, order_id={self.order_id}, amount={self.amount}, payment_date='{self.payment_date}', payment_type='{self.payment_type}')>"
+
+
+class OrderTransaction(Base):
+    __tablename__ = 'order_transactions'
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey('orders.id', ondelete='CASCADE'))
+    transaction_date = Column(DateTime, nullable=False)
+    transaction_type = Column(String(50))
+    transaction_status = Column(String(50))
+    amount = Column(Float, nullable=False)
+    payment_gateway = Column(String(50))
+    gateway_transaction_id = Column(String(100))
+    gateway_response_code = Column(String(50))
+    gateway_response_message = Column(Text)
+    payment_type = Column(String(50))
+    card_type = Column(String(50))
+    card_last_four = Column(String(4))
+    card_expiration_month = Column(Integer)
+    card_expiration_year = Column(Integer)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    order = relationship("Order", back_populates="transactions")
+
+    def __repr__(self):
+        return f"<OrderTransaction(id={self.id}, order_id={self.order_id}, amount={self.amount}, transaction_date='{self.transaction_date}', transaction_type='{self.transaction_type}')>"
+
+
 class Opportunity(Base):
     __tablename__ = 'opportunities'
 
@@ -506,14 +577,16 @@ class Order(Base):
     __tablename__ = 'orders'
 
     id = Column(Integer, primary_key=True)
-    order_number = Column(String(50))  # Added from API spec
+    order_number = Column(String(50))
     order_date = Column(DateTime, nullable=False)
     order_status = Column(String(50))
     order_total = Column(Float)
-    order_type = Column(String(50))  # Added from API spec
-    payment_plan_id = Column(Integer)  # Added from API spec
-    payment_type = Column(String(50))  # Added from API spec
-    subscription_plan_id = Column(Integer)  # Added from API spec
+    order_type = Column(String(50))
+    payment_plan_id = Column(Integer)
+    payment_type = Column(String(50))
+    subscription_plan_id = Column(Integer)
+    shipping_information = Column(JSON)  # Store shipping info as JSON
+    payment_gateway = Column(JSON)  # Store payment gateway info as JSON
     created_at = Column(DateTime, default=utc_now)
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
@@ -521,30 +594,51 @@ class Order(Base):
     contacts = relationship("Contact", secondary="contact_order", back_populates="orders")
     items = relationship("OrderItem", secondary="order_item", back_populates="orders")
     custom_field_values = relationship("OrderCustomFieldValue", back_populates="order", cascade="all, delete-orphan")
+    payment_plan = relationship("PaymentPlan", back_populates="orders")
+    subscription_plan = relationship("SubscriptionPlan", back_populates="orders")
+    payments = relationship("OrderPayment", back_populates="order")
+    transactions = relationship("OrderTransaction", back_populates="order")
 
     def __repr__(self):
         return f"<Order(id={self.id}, order_number='{self.order_number}', order_status='{self.order_status}', order_total={self.order_total})>"
 
 
-class OrderItem(Base):
-    __tablename__ = 'order_items'
+class PaymentPlan(Base):
+    __tablename__ = 'payment_plans'
 
     id = Column(Integer, primary_key=True)
-    order_id = Column(Integer, ForeignKey('orders.id', ondelete='CASCADE'))
-    product_id = Column(Integer, ForeignKey('products.id', ondelete='CASCADE'))
-    quantity = Column(Integer, nullable=False)
-    price = Column(Float, nullable=False)
-    description = Column(Text)  # Added from API spec
-    subscription_plan_id = Column(Integer)  # Added from API spec
+    name = Column(String(200))
+    description = Column(Text)
+    frequency = Column(String(50))
+    number_of_payments = Column(Integer)
+    payment_amount = Column(Float)
     created_at = Column(DateTime, default=utc_now)
-    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)  # Added from API spec
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
-    orders = relationship("Order", secondary="order_item", back_populates="items")
-    products = relationship("Product", secondary="product_order_item", back_populates="order_items")
+    orders = relationship("Order", back_populates="payment_plan")
 
     def __repr__(self):
-        return f"<OrderItem(id={self.id}, order_id={self.order_id}, product_id={self.product_id}, quantity={self.quantity}, price={self.price})>"
+        return f"<PaymentPlan(id={self.id}, name='{self.name}', frequency='{self.frequency}')>"
+
+
+class SubscriptionPlan(Base):
+    __tablename__ = 'subscription_plans'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200))
+    description = Column(Text)
+    frequency = Column(String(50))
+    subscription_plan_price = Column(Float)
+    created_at = Column(DateTime, default=utc_now)
+    modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    orders = relationship("Order", back_populates="subscription_plan")
+    subscriptions = relationship("Subscription", back_populates="subscription_plan")
+
+    def __repr__(self):
+        return f"<SubscriptionPlan(id={self.id}, name='{self.name}', frequency='{self.frequency}')>"
 
 
 class Task(Base):
@@ -679,41 +773,28 @@ class AffiliateRedirectProgram(Base):
 
 
 # Join tables
-contact_address = Table('contact_address', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
-                        Column('address_id', Integer, ForeignKey('addresses.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_address = Table('contact_address', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('address_id', Integer, ForeignKey('addresses.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-contact_email = Table('contact_email', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
-                      Column('email_id', Integer, ForeignKey('email_addresses.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_email = Table('contact_email', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('email_id', Integer, ForeignKey('email_addresses.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-contact_phone = Table('contact_phone', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
-                      Column('phone_id', Integer, ForeignKey('phone_numbers.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_phone = Table('contact_phone', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('phone_id', Integer, ForeignKey('phone_numbers.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-contact_fax = Table('contact_fax', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
-                    Column('fax_id', Integer, ForeignKey('fax_numbers.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_fax = Table('contact_fax', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('fax_id', Integer, ForeignKey('fax_numbers.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-contact_opportunity = Table('contact_opportunity', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
-                            Column('opportunity_id', Integer, ForeignKey('opportunities.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_opportunity = Table('contact_opportunity', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('opportunity_id', Integer, ForeignKey('opportunities.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-contact_task = Table('contact_task', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
-                     Column('task_id', Integer, ForeignKey('tasks.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_task = Table('contact_task', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('task_id', Integer, ForeignKey('tasks.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-contact_note = Table('contact_note', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
-                     Column('note_id', Integer, ForeignKey('notes.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_note = Table('contact_note', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('note_id', Integer, ForeignKey('notes.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-contact_order = Table('contact_order', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
-                      Column('order_id', Integer, ForeignKey('orders.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_order = Table('contact_order', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('order_id', Integer, ForeignKey('orders.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-contact_subscription = Table('contact_subscription', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
-                             Column('subscription_id', Integer, ForeignKey('subscriptions.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_subscription = Table('contact_subscription', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('subscription_id', Integer, ForeignKey('subscriptions.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-order_item = Table('order_item', Base.metadata, Column('order_id', Integer, ForeignKey('orders.id', ondelete='CASCADE'), primary_key=True),
-                   Column('item_id', Integer, ForeignKey('order_items.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+order_item = Table('order_item', Base.metadata, Column('order_id', Integer, ForeignKey('orders.id', ondelete='CASCADE'), primary_key=True), Column('item_id', Integer, ForeignKey('order_items.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-product_order_item = Table('product_order_item', Base.metadata, Column('product_id', Integer, ForeignKey('products.id', ondelete='CASCADE'), primary_key=True),
-                           Column('order_item_id', Integer, ForeignKey('order_items.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+product_order_item = Table('product_order_item', Base.metadata, Column('product_id', Integer, ForeignKey('products.id', ondelete='CASCADE'), primary_key=True), Column('order_item_id', Integer, ForeignKey('order_items.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-product_subscription = Table('product_subscription', Base.metadata, Column('product_id', Integer, ForeignKey('products.id', ondelete='CASCADE'), primary_key=True),
-                             Column('subscription_id', Integer, ForeignKey('subscriptions.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+product_subscription = Table('product_subscription', Base.metadata, Column('product_id', Integer, ForeignKey('products.id', ondelete='CASCADE'), primary_key=True), Column('subscription_id', Integer, ForeignKey('subscriptions.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-campaign_sequence = Table('campaign_sequence', Base.metadata, Column('campaign_id', Integer, ForeignKey('campaigns.id', ondelete='CASCADE'), primary_key=True),
-                          Column('sequence_id', Integer, ForeignKey('campaign_sequences.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+campaign_sequence = Table('campaign_sequence', Base.metadata, Column('campaign_id', Integer, ForeignKey('campaigns.id', ondelete='CASCADE'), primary_key=True), Column('sequence_id', Integer, ForeignKey('campaign_sequences.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))

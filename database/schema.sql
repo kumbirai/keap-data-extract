@@ -216,9 +216,34 @@ CREATE TABLE orders (
     order_status VARCHAR(50),
     order_total FLOAT,
     order_type VARCHAR(50),
-    payment_plan_id INTEGER,
+    payment_plan_id INTEGER REFERENCES payment_plans(id),
     payment_type VARCHAR(50),
-    subscription_plan_id INTEGER,
+    subscription_plan_id INTEGER REFERENCES subscription_plans(id),
+    shipping_information JSONB,
+    payment_gateway JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Payment plans table
+CREATE TABLE payment_plans (
+    id INTEGER PRIMARY KEY,
+    name VARCHAR(200),
+    description TEXT,
+    frequency VARCHAR(50),
+    number_of_payments INTEGER,
+    payment_amount FLOAT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Subscription plans table
+CREATE TABLE subscription_plans (
+    id INTEGER PRIMARY KEY,
+    name VARCHAR(200),
+    description TEXT,
+    frequency VARCHAR(50),
+    subscription_plan_price FLOAT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -235,6 +260,27 @@ CREATE TABLE order_items (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Order payments table
+CREATE TABLE order_payments (
+    id INTEGER PRIMARY KEY,
+    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+    amount FLOAT NOT NULL,
+    payment_date TIMESTAMP NOT NULL,
+    payment_type VARCHAR(50),
+    payment_status VARCHAR(50),
+    payment_gateway VARCHAR(50),
+    transaction_id VARCHAR(100),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indexes for order payments
+CREATE INDEX idx_order_payments_order_id ON order_payments(order_id);
+CREATE INDEX idx_order_payments_payment_date ON order_payments(payment_date);
+CREATE INDEX idx_order_payments_payment_type ON order_payments(payment_type);
+CREATE INDEX idx_order_payments_payment_status ON order_payments(payment_status);
 
 -- Opportunities table
 CREATE TABLE opportunities (
@@ -673,4 +719,48 @@ CREATE INDEX idx_affiliate_redirect_programs_program_id ON affiliate_redirect_pr
 
 -- Create indexes for fax numbers
 CREATE INDEX idx_fax_numbers_number ON fax_numbers(number);
-CREATE INDEX idx_fax_numbers_field ON fax_numbers(field); 
+CREATE INDEX idx_fax_numbers_field ON fax_numbers(field);
+
+-- Add indexes for new tables
+CREATE INDEX idx_payment_plans_name ON payment_plans(name);
+CREATE INDEX idx_payment_plans_frequency ON payment_plans(frequency);
+CREATE INDEX idx_subscription_plans_name ON subscription_plans(name);
+CREATE INDEX idx_subscription_plans_frequency ON subscription_plans(frequency);
+
+-- Add triggers for new tables
+CREATE TRIGGER update_payment_plans_modtime
+    BEFORE UPDATE ON payment_plans
+    FOR EACH ROW
+    EXECUTE FUNCTION update_modified_at_column();
+
+CREATE TRIGGER update_subscription_plans_modtime
+    BEFORE UPDATE ON subscription_plans
+    FOR EACH ROW
+    EXECUTE FUNCTION update_modified_at_column();
+
+CREATE TABLE order_transactions (
+    id INTEGER PRIMARY KEY,
+    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+    transaction_date TIMESTAMP NOT NULL,
+    transaction_type VARCHAR(50),
+    transaction_status VARCHAR(50),
+    amount FLOAT NOT NULL,
+    payment_gateway VARCHAR(50),
+    gateway_transaction_id VARCHAR(100),
+    gateway_response_code VARCHAR(50),
+    gateway_response_message TEXT,
+    payment_type VARCHAR(50),
+    card_type VARCHAR(50),
+    card_last_four VARCHAR(4),
+    card_expiration_month INTEGER,
+    card_expiration_year INTEGER,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_order_transactions_order_id ON order_transactions(order_id);
+CREATE INDEX idx_order_transactions_transaction_date ON order_transactions(transaction_date);
+CREATE INDEX idx_order_transactions_transaction_type ON order_transactions(transaction_type);
+CREATE INDEX idx_order_transactions_transaction_status ON order_transactions(transaction_status);
+CREATE INDEX idx_order_transactions_gateway_transaction_id ON order_transactions(gateway_transaction_id); 

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from src.api.keap_client import KeapClient
 from src.database.config import SessionLocal
-from src.models.models import (Affiliate, Campaign, Contact, CustomField, Note, Opportunity, Order, Subscription, Tag, Task)
+from src.models.models import (Affiliate, Campaign, Contact, CustomField, Note, Opportunity, Order, Subscription, Tag, Task, PaymentPlan, SubscriptionPlan)
 from src.utils.error_logger import ErrorLogger
 from src.utils.logging_config import setup_logging
 
@@ -695,6 +695,14 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
                     full_order = client.get_order(item.id)
                     logger.info(f"Retrieved full order details for ID: {item.id}")
 
+                    # Get order payments
+                    payments = client.get_order_payments(item.id)
+                    logger.info(f"Retrieved {len(payments)} payments for order ID: {item.id}")
+
+                    # Get order transactions
+                    transactions = client.get_order_transactions(item.id)
+                    logger.info(f"Retrieved {len(transactions)} transactions for order ID: {item.id}")
+
                     # First, check if order exists
                     existing_order = db_session.query(Order).filter(Order.id == item.id).first()
 
@@ -708,11 +716,27 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
                         existing_order.items = []
                         existing_order.custom_field_values = []
                         existing_order.contacts = []
+                        existing_order.payments = []
+                        existing_order.transactions = []
 
                         # Add new relationships using SQLAlchemy's native relationship handling
                         existing_order.items = full_order.items
                         existing_order.custom_field_values = full_order.custom_field_values
                         existing_order.contacts = full_order.contacts
+                        existing_order.payments = payments
+                        existing_order.transactions = transactions
+
+                        # Handle payment plan if present
+                        if full_order.payment_plan_id:
+                            payment_plan = db_session.query(PaymentPlan).filter(PaymentPlan.id == full_order.payment_plan_id).first()
+                            if payment_plan:
+                                existing_order.payment_plan = payment_plan
+
+                        # Handle subscription plan if present
+                        if full_order.subscription_plan_id:
+                            subscription_plan = db_session.query(SubscriptionPlan).filter(SubscriptionPlan.id == full_order.subscription_plan_id).first()
+                            if subscription_plan:
+                                existing_order.subscription_plan = subscription_plan
 
                         # After adding existing order
                         db_session.add(existing_order)
@@ -721,6 +745,24 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
                         success_count += 1
 
                     else:
+                        # Handle payment plan if present
+                        if full_order.payment_plan_id:
+                            payment_plan = db_session.query(PaymentPlan).filter(PaymentPlan.id == full_order.payment_plan_id).first()
+                            if payment_plan:
+                                full_order.payment_plan = payment_plan
+
+                        # Handle subscription plan if present
+                        if full_order.subscription_plan_id:
+                            subscription_plan = db_session.query(SubscriptionPlan).filter(SubscriptionPlan.id == full_order.subscription_plan_id).first()
+                            if subscription_plan:
+                                full_order.subscription_plan = subscription_plan
+
+                        # Add payments to the order
+                        full_order.payments = payments
+
+                        # Add transactions to the order
+                        full_order.transactions = transactions
+
                         # Add new order with relationships
                         db_session.add(full_order)
                         db_session.flush()  # Ensure order is persisted
@@ -733,23 +775,13 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
                     db_session.rollback()
                     continue
 
-            # Update offset based on next URL if available
-            if pagination.get('next'):
-                next_offset = client._parse_next_url(pagination['next'])
-                if next_offset is not None:
-                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
-                else:
-                    # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
-            else:
-                # No more pages
-                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
-                break
+            # Update checkpoint with new offset
+            checkpoint_manager.save_checkpoint(entity_type, current_offset + batch_size)
 
         except Exception as e:
-            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
+            log_error(error_logger, entity_type, None, e, {'offset': current_offset})
             db_session.rollback()
-            raise
+            break
 
     return total_records, success_count, failed_count
 

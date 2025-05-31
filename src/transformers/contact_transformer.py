@@ -33,8 +33,7 @@ class ContactTransformer:
             contact.addresses = []
             for addr_data in data['addresses']:
                 address = Address(id=addr_data[
-                    'id'], line1=addr_data.get('line1'), line2=addr_data.get('line2'), city=addr_data.get('city'), state=addr_data.get('state'), postal_code=addr_data.get('postal_code'),
-                                  country=addr_data.get('country'), type=addr_data.get('type'))
+                    'id'], line1=addr_data.get('line1'), line2=addr_data.get('line2'), city=addr_data.get('city'), state=addr_data.get('state'), postal_code=addr_data.get('postal_code'), country=addr_data.get('country'), type=addr_data.get('type'))
                 db.add(address)
                 contact.addresses.append(address)
 
