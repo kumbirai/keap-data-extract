@@ -1173,7 +1173,23 @@ def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manag
 
 @audit_load_operation
 def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
-    """Load all affiliates."""
+    """Load all affiliates with their related data.
+    
+    This function loads affiliates and all their related data including:
+    - Commissions
+    - Payments
+    - Clawbacks
+    
+    Args:
+        client: KeapClient instance
+        db: Database session
+        checkpoint_manager: CheckpointManager instance
+        batch_size: Number of affiliates to load per batch
+        update: Whether this is an update operation
+        
+    Returns:
+        Tuple of (total_records, success_count, failed_count)
+    """
     entity_type = 'affiliates'
     total_records = 0
     success_count = 0
@@ -1184,47 +1200,90 @@ def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: Checkpo
         current_offset = checkpoint_manager.get_checkpoint(entity_type)
         logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
 
-        # Get query parameters including since timestamp if applicable
-        query_params = checkpoint_manager.get_query_params(entity_type, update)
-        query_params.update({'limit': batch_size, 'offset': current_offset})
+        # Make API call with limit and offset
+        items, pagination = client.get_affiliates(limit=batch_size, offset=current_offset)
+
+        if not items:
+            # Mark as completed when no more items
+            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
+            break
 
         try:
-            affiliates = client.get_affiliates(**query_params)
-            logger.info(f"Received {len(affiliates) if affiliates else 0} affiliates from API")
-
-            if not affiliates:
-                # Mark as completed when no more items
-                checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
-                break
-
-            for affiliate in affiliates:
+            # Process items
+            for item in items:
                 total_records += 1
                 try:
-                    # Validate affiliate data
-                    if not affiliate.code:
-                        raise ValueError("Code is required for affiliate")
+                    logger.info(f"Processing affiliate ID: {item.id}")
 
-                    # Use merge operation to handle both inserts and updates
-                    merged_affiliate = db.merge(affiliate)
-                    success_count += 1
-                    db.commit()
+                    # Get full affiliate details
+                    full_affiliate = client.get_affiliate(item.id)
+                    logger.info(f"Retrieved full affiliate details for ID: {item.id}")
+
+                    # Get affiliate commissions
+                    commissions = client.get_affiliate_commissions(item.id)
+                    logger.info(f"Retrieved {len(commissions)} commissions for affiliate ID: {item.id}")
+
+                    # Get affiliate payments
+                    payments = client.get_affiliate_payments(item.id)
+                    logger.info(f"Retrieved {len(payments)} payments for affiliate ID: {item.id}")
+
+                    # Get affiliate clawbacks
+                    clawbacks = client.get_affiliate_clawbacks(item.id)
+                    logger.info(f"Retrieved {len(clawbacks)} clawbacks for affiliate ID: {item.id}")
+
+                    # First, check if affiliate exists
+                    existing_affiliate = db.query(Affiliate).filter(Affiliate.id == item.id).first()
+
+                    if existing_affiliate:
+                        # Update existing affiliate's attributes
+                        for key, value in full_affiliate.__dict__.items():
+                            if not key.startswith('_'):
+                                setattr(existing_affiliate, key, value)
+
+                        # Clear existing relationships
+                        existing_affiliate.commissions = []
+                        existing_affiliate.payments = []
+                        existing_affiliate.clawbacks = []
+
+                        # Add new relationships
+                        existing_affiliate.commissions = commissions
+                        existing_affiliate.payments = payments
+                        existing_affiliate.clawbacks = clawbacks
+
+                        # After adding existing affiliate
+                        db.add(existing_affiliate)
+                        db.flush()  # Ensure affiliate is persisted
+                        db.commit()
+                        success_count += 1
+
+                    else:
+                        # Add new affiliate with relationships
+                        full_affiliate.commissions = commissions
+                        full_affiliate.payments = payments
+                        full_affiliate.clawbacks = clawbacks
+
+                        db.add(full_affiliate)
+                        db.flush()  # Ensure affiliate is persisted
+                        db.commit()
+                        success_count += 1
+
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger, entity_type, affiliate.id, e, {'affiliate_data': affiliate.__dict__})
+                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
                     db.rollback()
                     continue
 
             # Update offset based on next URL if available
-            if hasattr(client, '_parse_next_url') and hasattr(affiliates, 'next'):
-                next_offset = client._parse_next_url(affiliates.next)
+            if pagination.get('next'):
+                next_offset = client._parse_next_url(pagination['next'])
                 if next_offset is not None:
                     checkpoint_manager.save_checkpoint(entity_type, next_offset)
                 else:
                     # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(affiliates))
+                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
             else:
                 # No more pages
-                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(affiliates), completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
                 break
 
         except Exception as e:
