@@ -325,7 +325,17 @@ def transform_affiliate(api_data: Dict[str, Any]) -> Affiliate:
     """Transform API affiliate data into an Affiliate model instance."""
     status = safe_enum_convert(api_data.get('status'), AffiliateStatus)
 
-    return Affiliate(id=api_data.get('id'), code=api_data.get('code'), contact_id=api_data.get('contact_id'), name=api_data.get('name'), notify_on_lead=api_data.get('notify_on_lead', False), notify_on_sale=api_data.get('notify_on_sale', False), parent_id=api_data.get('parent_id'), status=status, track_leads_for=api_data.get('track_leads_for'))
+    return Affiliate(
+        id=api_data.get('id'),
+        code=api_data.get('code'),
+        contact_id=api_data.get('contact_id'),
+        name=api_data.get('name'),
+        parent_id=api_data.get('parent_id'),
+        status=status,
+        notify_on_lead=api_data.get('notify_on_lead'),
+        notify_on_sale=api_data.get('notify_on_sale'),
+        track_leads_for=api_data.get('track_leads_for')
+    )
 
 
 def transform_affiliate_commission(api_data: Dict[str, Any]) -> AffiliateCommission:

@@ -2,7 +2,7 @@ import enum
 from datetime import datetime, timezone
 
 from sqlalchemy import (BigInteger, Boolean, Column, Date, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Table, Text, UniqueConstraint, Numeric, func)
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import declarative_base, relationship, foreign
 
 Base = declarative_base()
 
@@ -235,7 +235,7 @@ class Affiliate(Base):
 
     id = Column(Integer, primary_key=True)
     contact_id = Column(Integer, ForeignKey('contacts.id'))
-    parent_id = Column(Integer, ForeignKey('affiliates.id'))
+    parent_id = Column(Integer)
     status = Column(Enum(AffiliateStatus))
     code = Column(String(50))
     name = Column(String(200))
@@ -251,13 +251,21 @@ class Affiliate(Base):
     country = Column(String(100))
     tax_id = Column(String(50))
     payment_email = Column(String(255))
+    notify_on_lead = Column(Boolean, nullable=True)
+    notify_on_sale = Column(Boolean, nullable=True)
+    track_leads_for = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     modified_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     contact = relationship("Contact", back_populates="affiliate")
-    parent = relationship("Affiliate", remote_side=[id], back_populates="children")
-    children = relationship("Affiliate", back_populates="parent", remote_side=[parent_id])
+    parent = relationship("Affiliate", 
+                         remote_side=[id],
+                         primaryjoin="foreign(Affiliate.parent_id)==Affiliate.id",
+                         back_populates="children")
+    children = relationship("Affiliate", 
+                          back_populates="parent",
+                          primaryjoin="Affiliate.id==foreign(Affiliate.parent_id)")
     commissions = relationship("AffiliateCommission", back_populates="affiliate", cascade="all, delete-orphan")
     programs = relationship("AffiliateProgram", back_populates="affiliate", cascade="all, delete-orphan")
     redirects = relationship("AffiliateRedirect", back_populates="affiliate", cascade="all, delete-orphan")

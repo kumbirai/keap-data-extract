@@ -563,7 +563,7 @@ CREATE TABLE campaign_sequences (
 CREATE TABLE affiliates (
     id INTEGER PRIMARY KEY,
     contact_id INTEGER REFERENCES contacts(id),
-    parent_id INTEGER REFERENCES affiliates(id),
+    parent_id INTEGER,
     status affiliate_status,
     code VARCHAR(50),
     name VARCHAR(200),
@@ -579,6 +579,9 @@ CREATE TABLE affiliates (
     country VARCHAR(100),
     tax_id VARCHAR(50),
     payment_email VARCHAR(255),
+    notify_on_lead BOOLEAN,
+    notify_on_sale BOOLEAN,
+    track_leads_for INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
