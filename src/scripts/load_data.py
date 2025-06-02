@@ -1358,19 +1358,16 @@ def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: Checkpo
 
                         # After adding existing affiliate
                         db.merge(existing_affiliate)
-                        db.flush()  # Ensure affiliate is persisted
-                        db.commit()
-                        success_count += 1
-
                     else:
                         # Add new affiliate with relationships
                         full_affiliate.payments = payments
                         full_affiliate.clawbacks = clawbacks
 
                         db.merge(full_affiliate)
-                        db.flush()  # Ensure affiliate is persisted
-                        db.commit()
-                        success_count += 1
+
+                    db.commit()
+                    success_count += 1
+                    logger.debug(f"Successfully processed affiliate ID: {item.id}")
 
                 except Exception as e:
                     failed_count += 1
@@ -1840,11 +1837,201 @@ def load_affiliate_payments(client: KeapClient, db: Session, checkpoint_manager:
         raise
 
 
-def main(update: bool = False):
+def load_product_by_id(client: KeapClient, db_session: Session, product_id: int) -> bool:
+    """Load a single product by ID from Keap API into database."""
+    try:
+        logger.info(f"Loading product ID: {product_id}")
+        
+        # Get full product details
+        full_product = client.get_product(product_id)
+        logger.info(f"Retrieved full product details for ID: {product_id}")
+
+        # First, check if product exists
+        existing_product = db_session.query(Product).filter(Product.id == product_id).first()
+
+        if existing_product:
+            # Update existing product's attributes
+            for key, value in full_product.__dict__.items():
+                if not key.startswith('_'):
+                    setattr(existing_product, key, value)
+            db_session.add(existing_product)
+        else:
+            # Add new product
+            db_session.add(full_product)
+
+        db_session.commit()
+        logger.info(f"Successfully processed product ID: {product_id}")
+        return True
+
+    except Exception as e:
+        db_session.rollback()
+        logger.error(f"Error processing product ID {product_id}: {e}")
+        return False
+
+def load_contact_by_id(client: KeapClient, db_session: Session, contact_id: int) -> bool:
+    """Load a single contact by ID from Keap API into database."""
+    try:
+        logger.info(f"Loading contact ID: {contact_id}")
+        
+        # Get full contact details
+        full_contact = client.get_contact(contact_id)
+        logger.info(f"Retrieved full contact details for ID: {contact_id}")
+
+        # First, check if contact exists
+        existing_contact = db_session.query(Contact).filter(Contact.id == contact_id).first()
+
+        if existing_contact:
+            # Update existing contact's attributes
+            for key, value in full_contact.__dict__.items():
+                if not key.startswith('_'):
+                    setattr(existing_contact, key, value)
+            db_session.add(existing_contact)
+        else:
+            # Add new contact
+            db_session.add(full_contact)
+
+        db_session.commit()
+        logger.info(f"Successfully processed contact ID: {contact_id}")
+        return True
+
+    except Exception as e:
+        db_session.rollback()
+        logger.error(f"Error processing contact ID {contact_id}: {e}")
+        return False
+
+def load_affiliate_by_id(client: KeapClient, db_session: Session, affiliate_id: int) -> bool:
+    """Load a single affiliate by ID from Keap API into database."""
+    try:
+        logger.info(f"Loading affiliate ID: {affiliate_id}")
+        
+        # Get full affiliate details
+        full_affiliate = client.get_affiliate(affiliate_id)
+        logger.info(f"Retrieved full affiliate details for ID: {affiliate_id}")
+
+        # Get affiliate payments
+        payments, _ = client.get_affiliate_payments(affiliate_id)
+        logger.info(f"Retrieved {len(payments)} payments for affiliate ID: {affiliate_id}")
+
+        # Get affiliate clawbacks
+        clawbacks, _ = client.get_affiliate_clawbacks(affiliate_id)
+        logger.info(f"Retrieved {len(clawbacks)} clawbacks for affiliate ID: {affiliate_id}")
+
+        # First, check if affiliate exists
+        existing_affiliate = db_session.query(Affiliate).filter(Affiliate.id == affiliate_id).first()
+
+        if existing_affiliate:
+            # Update existing affiliate's attributes
+            for key, value in full_affiliate.__dict__.items():
+                if not key.startswith('_'):
+                    setattr(existing_affiliate, key, value)
+
+            # Clear existing relationships
+            existing_affiliate.payments = []
+            existing_affiliate.clawbacks = []
+
+            # Add new relationships
+            existing_affiliate.payments = payments
+            existing_affiliate.clawbacks = clawbacks
+
+            db_session.merge(existing_affiliate)
+        else:
+            # Add new affiliate with relationships
+            full_affiliate.payments = payments
+            full_affiliate.clawbacks = clawbacks
+            db_session.merge(full_affiliate)
+
+        db_session.commit()
+        logger.info(f"Successfully processed affiliate ID: {affiliate_id}")
+        return True
+
+    except Exception as e:
+        db_session.rollback()
+        logger.error(f"Error processing affiliate ID {affiliate_id}: {e}")
+        return False
+
+def load_order_by_id(client: KeapClient, db_session: Session, order_id: int) -> bool:
+    """Load a single order by ID from Keap API into database."""
+    try:
+        logger.info(f"Loading order ID: {order_id}")
+        
+        # Get full order details
+        full_order = client.get_order(order_id)
+        logger.info(f"Retrieved full order details for ID: {order_id}")
+
+        # Get order payments
+        payments = client.get_order_payments(order_id)
+        logger.info(f"Retrieved {len(payments)} payments for order ID: {order_id}")
+
+        # Get order transactions
+        try:
+            transactions = client.get_order_transactions(order_id)
+            logger.info(f"Retrieved {len(transactions)} transactions for order ID: {order_id}")
+        except Exception as e:
+            logger.warning(f"Error getting transactions for order {order_id}: {str(e)}")
+            transactions = []
+
+        # First, check if order exists
+        existing_order = db_session.query(Order).filter(Order.id == order_id).first()
+
+        if existing_order:
+            # Create update dictionary for order attributes, excluding relationships
+            update_dict = {}
+            for key, value in full_order.__dict__.items():
+                if not key.startswith('_') and not isinstance(value, (list, dict)):
+                    # Set affiliate IDs to None if they are 0
+                    if key in ['lead_affiliate_id', 'sales_affiliate_id'] and value == 0:
+                        value = None
+                    update_dict[key] = value
+
+            # Update the order attributes
+            db_session.query(Order).filter(Order.id == order_id).update(update_dict)
+            
+            # Get the updated order
+            order = db_session.query(Order).filter(Order.id == order_id).first()
+            
+            # Clear existing relationships
+            order.payments = []
+            order.transactions = []
+            order.contacts = []
+            order.custom_field_values = []
+            
+            # Add new relationships
+            order.payments = payments
+            order.transactions = transactions
+            order.contacts = full_order.contacts
+            order.custom_field_values = full_order.custom_field_values
+        else:
+            # For new orders, set relationships before adding
+            # Set affiliate IDs to None if they are 0
+            if full_order.lead_affiliate_id == 0:
+                full_order.lead_affiliate_id = None
+            if full_order.sales_affiliate_id == 0:
+                full_order.sales_affiliate_id = None
+                
+            full_order.payments = payments
+            full_order.transactions = transactions
+            full_order.contacts = full_order.contacts
+            full_order.custom_field_values = full_order.custom_field_values
+            
+            # Add the new order to the session
+            db_session.add(full_order)
+
+        db_session.commit()
+        logger.info(f"Successfully processed order ID: {order_id}")
+        return True
+
+    except Exception as e:
+        db_session.rollback()
+        logger.error(f"Error processing order ID {order_id}: {e}")
+        return False
+
+def main(update: bool = False, entity_type: str = None, entity_id: int = None):
     """Main function to perform the data load.
     
     Args:
         update: Whether to perform an update operation using last_loaded timestamps
+        entity_type: Type of entity to load (products, contacts, affiliates, orders)
+        entity_id: ID of specific entity to load
     """
     start_time = datetime.now(timezone.utc)
     total_records = 0
@@ -1866,127 +2053,112 @@ def main(update: bool = False):
         logger.info("Performing update operation...")
 
     try:
-        # Load data in a specific order to maintain referential integrity
-        # First load custom fields since they are referenced by contacts
-        custom_fields_total, custom_fields_success, custom_fields_failed = load_custom_fields(client, db, checkpoint_manager, update=update)
-        total_records += custom_fields_total
-        success_count += custom_fields_success
-        failed_count += custom_fields_failed
+        if entity_type and entity_id:
+            # Load specific entity by ID
+            success = False
+            if entity_type == 'products':
+                success = load_product_by_id(client, db, entity_id)
+            elif entity_type == 'contacts':
+                success = load_contact_by_id(client, db, entity_id)
+            elif entity_type == 'affiliates':
+                success = load_affiliate_by_id(client, db, entity_id)
+            elif entity_type == 'orders':
+                success = load_order_by_id(client, db, entity_id)
+            else:
+                logger.error(f"Unknown entity type: {entity_type}")
+                return
 
-        # Then load tags since they are referenced by contacts
-        tags_total, tags_success, tags_failed = load_tags(client, db, checkpoint_manager, update=update)
-        total_records += tags_total
-        success_count += tags_success
-        failed_count += tags_failed
+            if success:
+                success_count += 1
+            else:
+                failed_count += 1
+        else:
+            # Load all data in a specific order to maintain referential integrity
+            # First load custom fields since they are referenced by contacts
+            custom_fields_total, custom_fields_success, custom_fields_failed = load_custom_fields(client, db, checkpoint_manager, update=update)
+            total_records += custom_fields_total
+            success_count += custom_fields_success
+            failed_count += custom_fields_failed
 
-        # Load products before orders and subscriptions
-        products_total, products_success, products_failed = load_products(client, db, checkpoint_manager, update=update)
-        total_records += products_total
-        success_count += products_success
-        failed_count += products_failed
+            # Then load tags since they are referenced by contacts
+            tags_total, tags_success, tags_failed = load_tags(client, db, checkpoint_manager, update=update)
+            total_records += tags_total
+            success_count += tags_success
+            failed_count += tags_failed
 
-        # Then load contacts and their related data
-        contacts_total, contacts_success, contacts_failed = load_contacts(client, db, checkpoint_manager, update=update)
-        total_records += contacts_total
-        success_count += contacts_success
-        failed_count += contacts_failed
+            # Load products before orders and subscriptions
+            products_total, products_success, products_failed = load_products(client, db, checkpoint_manager, update=update)
+            total_records += products_total
+            success_count += products_success
+            failed_count += products_failed
 
-        # Load opportunities
-        opportunities_total, opportunities_success, opportunities_failed = load_opportunities(client, db, checkpoint_manager, update=update)
-        total_records += opportunities_total
-        success_count += opportunities_success
-        failed_count += opportunities_failed
+            # Then load contacts and their related data
+            contacts_total, contacts_success, contacts_failed = load_contacts(client, db, checkpoint_manager, update=update)
+            total_records += contacts_total
+            success_count += contacts_success
+            failed_count += contacts_failed
 
-        # Load affiliate data before orders since orders reference affiliates
-        affiliates_total, affiliates_success, affiliates_failed = load_affiliates(client, db, checkpoint_manager, update=update)
-        total_records += affiliates_total
-        success_count += affiliates_success
-        failed_count += affiliates_failed
+            # Load opportunities
+            opportunities_total, opportunities_success, opportunities_failed = load_opportunities(client, db, checkpoint_manager, update=update)
+            total_records += opportunities_total
+            success_count += opportunities_success
+            failed_count += opportunities_failed
 
-        # Now load orders which depend on affiliates
-        orders_total, orders_success, orders_failed = load_orders(client, db, checkpoint_manager, update=update)
-        total_records += orders_total
-        success_count += orders_success
-        failed_count += orders_failed
+            # Load affiliate data before orders since orders reference affiliates
+            affiliates_total, affiliates_success, affiliates_failed = load_affiliates(client, db, checkpoint_manager, update=update)
+            total_records += affiliates_total
+            success_count += affiliates_success
+            failed_count += affiliates_failed
 
-        tasks_total, tasks_success, tasks_failed = load_tasks(client, db, checkpoint_manager, update=update)
-        total_records += tasks_total
-        success_count += tasks_success
-        failed_count += tasks_failed
+            # Now load orders which depend on affiliates
+            orders_total, orders_success, orders_failed = load_orders(client, db, checkpoint_manager, update=update)
+            total_records += orders_total
+            success_count += orders_success
+            failed_count += orders_failed
 
-        notes_total, notes_success, notes_failed = load_notes(client, db, checkpoint_manager, update=update)
-        total_records += notes_total
-        success_count += notes_success
-        failed_count += notes_failed
+            tasks_total, tasks_success, tasks_failed = load_tasks(client, db, checkpoint_manager, update=update)
+            total_records += tasks_total
+            success_count += tasks_success
+            failed_count += tasks_failed
 
-        campaigns_total, campaigns_success, campaigns_failed = load_campaigns(client, db, checkpoint_manager, update=update)
-        total_records += campaigns_total
-        success_count += campaigns_success
-        failed_count += campaigns_failed
+            notes_total, notes_success, notes_failed = load_notes(client, db, checkpoint_manager, update=update)
+            total_records += notes_total
+            success_count += notes_success
+            failed_count += notes_failed
 
-        subscriptions_total, subscriptions_success, subscriptions_failed = load_subscriptions(client, db, checkpoint_manager, update=update)
-        total_records += subscriptions_total
-        success_count += subscriptions_success
-        failed_count += subscriptions_failed
+            campaigns_total, campaigns_success, campaigns_failed = load_campaigns(client, db, checkpoint_manager, update=update)
+            total_records += campaigns_total
+            success_count += campaigns_success
+            failed_count += campaigns_failed
 
-        # Load remaining affiliate-related data
-        # commissions_total, commissions_success, commissions_failed = load_affiliate_commissions(client, db, checkpoint_manager, update=update)
-        # total_records += commissions_total
-        # success_count += commissions_success
-        # failed_count += commissions_failed
+            subscriptions_total, subscriptions_success, subscriptions_failed = load_subscriptions(client, db, checkpoint_manager, update=update)
+            total_records += subscriptions_total
+            success_count += subscriptions_success
+            failed_count += subscriptions_failed
 
-        # programs_total, programs_success, programs_failed = load_affiliate_programs(client, db, checkpoint_manager, update=update)
-        # total_records += programs_total
-        # success_count += programs_success
-        # failed_count += programs_failed
-
-        # redirects_total, redirects_success, redirects_failed = load_affiliate_redirects(client, db, checkpoint_manager, update=update)
-        # total_records += redirects_total
-        # success_count += redirects_success
-        # failed_count += redirects_failed
-
-        # summaries_total, summaries_success, summaries_failed = load_affiliate_summaries(client, db, checkpoint_manager, update=update)
-        # total_records += summaries_total
-        # success_count += summaries_success
-        # failed_count += summaries_failed
-
-        # clawbacks_total, clawbacks_success, clawbacks_failed = load_affiliate_clawbacks(client, db, checkpoint_manager, update=update)
-        # total_records += clawbacks_total
-        # success_count += clawbacks_success
-        # failed_count += clawbacks_failed
-
-        # payments_total, payments_success, payments_failed = load_affiliate_payments(client, db, checkpoint_manager, update=update)
-        # total_records += payments_total
-        # success_count += payments_success
-        # failed_count += payments_failed
-
-        logger.info("Data load completed successfully!")
-
-    except Exception as e:
-        logger.error(f"Error during data load: {str(e)}")
-        db.rollback()
-        raise
-    finally:
         end_time = datetime.now(timezone.utc)
         duration = end_time - start_time
-        duration_str = str(duration).split('.')[0]  # Format as HH:MM:SS
 
-        # Log final audit summary
-        logger.info(f"Final Audit Summary:")
-        logger.info(f"Total Records: {total_records}")
-        logger.info(f"Successful: {success_count}")
-        logger.info(f"Failed: {failed_count}")
-        logger.info(f"Duration: {duration_str}")
+        logger.info(f"Data load completed in {duration}")
+        logger.info(f"Total records processed: {total_records}")
+        logger.info(f"Successfully processed: {success_count}")
+        logger.info(f"Failed to process: {failed_count}")
 
-        # Save final audit log
-        checkpoint_manager.audit_logger.log_audit(entity_type='complete_load', start_time=start_time, end_time=end_time, total_records=total_records, success=success_count, failed=failed_count)
-
+    except Exception as e:
+        logger.error(f"Error in main: {str(e)}")
+        raise
+    finally:
         db.close()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Load data from Keap API')
-    parser.add_argument('--update', action='store_true', help='Resume from existing checkpoints')
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Load data from Keap API into database')
+    parser.add_argument('--update', action='store_true', help='Perform update operation using last_loaded timestamps')
+    parser.add_argument('--entity-type', choices=['products', 'contacts', 'affiliates', 'orders'], help='Type of entity to load')
+    parser.add_argument('--entity-id', type=int, help='ID of specific entity to load')
+    
     args = parser.parse_args()
-
-    main(update=args.update)
+    
+    main(update=args.update, entity_type=args.entity_type, entity_id=args.entity_id)
