@@ -6,10 +6,10 @@ from .base_client import KeapBaseClient
 from .exceptions import KeapNotFoundError
 from ..models.models import (AccountProfile, Affiliate, AffiliateClawback, AffiliateCommission, AffiliatePayment, AffiliateProgram, AffiliateRedirect, AffiliateSummary, Campaign, CampaignSequence,
                              Contact, CustomField, Note, Opportunity, Order, OrderItem, OrderPayment, OrderTransaction, Product, Subscription, Tag, Task)
-from ..utils.transformers import (transform_account_profile, transform_affiliate, transform_affiliate_clawback, transform_affiliate_commission, transform_affiliate_payment,
-                                  transform_affiliate_program, transform_affiliate_redirect, transform_affiliate_summary, transform_applied_tag, transform_campaign, transform_campaign_sequence,
-                                  transform_contact_with_related, transform_custom_field, transform_list_response, transform_note, transform_opportunity, transform_order_item, transform_order_payment,
-                                  transform_order_transaction, transform_order_with_items, transform_product, transform_subscription, transform_tag, transform_task)
+from src.transformers.transformers import (transform_account_profile, transform_affiliate, transform_affiliate_clawback, transform_affiliate_commission, transform_affiliate_payment,
+                                           transform_affiliate_program, transform_affiliate_redirect, transform_affiliate_summary, transform_applied_tag, transform_campaign, transform_campaign_sequence,
+                                           transform_contact_with_related, transform_custom_field, transform_list_response, transform_note, transform_opportunity, transform_order_item, transform_order_payment,
+                                           transform_order_transaction, transform_order_with_items, transform_product, transform_subscription, transform_tag, transform_task)
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +36,47 @@ class KeapClient(KeapBaseClient):
             logger.warning(f"Failed to parse next URL: {next_url}. Error: {str(e)}")
             return None
 
-    def get_contacts(self, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Contact], Dict[str, Any]]:
+    def _prepare_params(self, limit: int = 50, offset: int = 0, order: str = None, **additional_params) -> Dict[str, Any]:
+        """Prepare parameters for API requests.
+        
+        Args:
+            limit: Maximum number of items to return
+            offset: Offset for pagination
+            order: Field to order by (default varies by endpoint)
+            additional_params: Additional parameters to include
+            
+        Returns:
+            Dictionary of parameters for the API request
+        """
+        # Start with additional_params as base
+        params = additional_params.copy()
+        
+        # Override with explicit parameters if they are not None
+        if limit is not None:
+            params['limit'] = limit
+        if offset is not None:
+            params['offset'] = offset
+            
+        # Only include order parameter if it's explicitly provided
+        # This is because some endpoints don't support ordering
+        # and others have specific default ordering
+        if order is not None:
+            params['order'] = order
+        
+        # Filter out None values
+        params = {k: v for k, v in params.items() if v is not None}
+        
+        return params
+
+    def get_contacts(self, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Contact], Dict[str, Any]]:
         """Get a list of contacts.
         
         Args:
             limit: Maximum number of contacts to return
             offset: Offset for pagination
+            since: Optional timestamp to get contacts modified since
             db_session: Optional database session for processing related data
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
@@ -50,7 +84,11 @@ class KeapClient(KeapBaseClient):
             - Dictionary containing pagination metadata
         """
         try:
-            params = {'limit': limit, 'offset': offset, 'order': 'id'}
+            # Set default order to 'id' for contacts
+            if 'order' not in additional_params:
+                additional_params['order'] = 'id'
+                
+            params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
             response = self.get('contacts', params)
             logger.debug(f"Raw contacts API response: {response}")
 
@@ -85,12 +123,14 @@ class KeapClient(KeapBaseClient):
         logger.debug(f"Raw contact API response: {response}")
         return transform_contact_with_related(response)
 
-    def get_tags(self, limit: int = 50, offset: int = 0) -> Tuple[List[Tag], Dict[str, Any]]:
+    def get_tags(self, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[Tag], Dict[str, Any]]:
         """Get a list of tags.
         
         Args:
             limit: Maximum number of tags to return
             offset: Offset for pagination
+            since: Optional timestamp to get tags modified since
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
@@ -98,7 +138,7 @@ class KeapClient(KeapBaseClient):
             - Dictionary containing pagination metadata
         """
         try:
-            params = {'limit': limit, 'offset': offset, 'order': 'id'}
+            params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
             response = self.get('tags', params)
             logger.debug(f"Raw tags API response: {response}")
 
@@ -121,7 +161,7 @@ class KeapClient(KeapBaseClient):
         response = self.get('contacts/model')
         return response
 
-    def get_custom_fields(self, entity_type: str = 'contacts') -> Tuple[List[CustomField], Dict[str, Any]]:
+    def get_custom_fields(self, entity_type: str = 'contacts', **additional_params) -> Tuple[List[CustomField], Dict[str, Any]]:
         """Get all custom fields from the specified entity model.
         
         This method retrieves all custom fields defined in the specified entity model.
@@ -134,6 +174,7 @@ class KeapClient(KeapBaseClient):
                 - 'opportunities'
                 - 'orders'
                 - 'subscriptions'
+            additional_params: Additional parameters to pass to the API calls
         
         Returns:
             Tuple containing:
@@ -181,7 +222,7 @@ class KeapClient(KeapBaseClient):
         logger.info(f"Retrieved {len(custom_fields)} custom fields from {entity_type} model")
         return custom_fields, pagination
 
-    def get_all_custom_fields(self) -> Dict[str, List[CustomField]]:
+    def get_all_custom_fields(self, **additional_params) -> Dict[str, List[CustomField]]:
         """Get all custom fields from all entity models.
         
         This method retrieves custom fields from all supported entity types:
@@ -191,6 +232,9 @@ class KeapClient(KeapBaseClient):
         - orders
         - subscriptions
         
+        Args:
+            additional_params: Additional parameters to pass to the API calls
+        
         Returns:
             Dictionary mapping entity types to their list of CustomField objects
         """
@@ -199,7 +243,7 @@ class KeapClient(KeapBaseClient):
 
         for entity_type in entity_types:
             try:
-                custom_fields, _ = self.get_custom_fields(entity_type)
+                custom_fields, _ = self.get_custom_fields(entity_type, **additional_params)
                 all_custom_fields[entity_type] = custom_fields
             except Exception as e:
                 logger.error(f"Error retrieving custom fields for {entity_type}: {str(e)}")
@@ -208,43 +252,71 @@ class KeapClient(KeapBaseClient):
 
         return all_custom_fields
 
-    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Opportunity], Dict[str, Any]]:
+    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Opportunity], Dict[str, Any]]:
         """Get a list of opportunities.
         
         Args:
             contact_id: Optional contact ID to filter by
             limit: Maximum number of opportunities to return
             offset: Offset for pagination
+            since: Optional timestamp to get opportunities modified since
             db_session: Optional database session for processing related data
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
             - List of Opportunity objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'date_created'}
-        if contact_id:
-            params['contact_id'] = contact_id
+        params = self._prepare_params(
+            limit=limit, 
+            offset=offset, 
+            since=since,
+            contact_id=contact_id,
+            **additional_params
+        )
         response = self.get('opportunities', params)
         return transform_list_response(response, transform_opportunity)
 
-    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None, db_session=None) -> Tuple[List[Product], Dict[str, Any]]:
+    def get_opportunity(self, opportunity_id: int) -> Opportunity:
+        """Get a single opportunity by ID.
+        
+        Args:
+            opportunity_id: The ID of the opportunity to retrieve
+            
+        Returns:
+            Opportunity object
+        """
+        try:
+            response = self.get(f'opportunities/{opportunity_id}')
+            return transform_opportunity(response)
+        except Exception as e:
+            logger.error(f"Error fetching opportunity {opportunity_id}: {str(e)}")
+            raise
+
+    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Product], Dict[str, Any]]:
         """Get a list of products.
         
         Args:
             limit: Maximum number of products to return
             offset: Offset for pagination
             subscription_only: Optional flag to filter subscription products
+            since: Optional timestamp to get products modified since
             db_session: Optional database session for processing related data
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
             - List of Product objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        if subscription_only is not None:
-            params['subscription_only'] = subscription_only
+        params = self._prepare_params(
+            limit=limit, 
+            offset=offset, 
+            since=since,
+            subscription_only=subscription_only,
+            **additional_params
+        )
         response = self.get('products', params)
         return transform_list_response(response, transform_product)
 
@@ -253,23 +325,33 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'products/{product_id}')
         return transform_product(response)
 
-    def get_orders(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Order], Dict[str, Any]]:
+    def get_orders(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Order], Dict[str, Any]]:
         """Get a list of orders.
         
         Args:
             contact_id: Optional contact ID to filter by
             limit: Maximum number of orders to return
             offset: Offset for pagination
+            since: Optional timestamp to get orders modified since
             db_session: Optional database session for processing related data
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
             - List of Order objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'order_date'}
-        if contact_id:
-            params['contact_id'] = contact_id
+        # Set default order to 'date_created' for orders
+        if 'order' not in additional_params:
+            additional_params['order'] = 'date_created'
+            
+        params = self._prepare_params(
+            limit=limit, 
+            offset=offset, 
+            since=since,
+            contact_id=contact_id,
+            **additional_params
+        )
         response = self.get('orders', params)
         return transform_list_response(response, transform_order_with_items)
 
@@ -320,19 +402,41 @@ class KeapClient(KeapBaseClient):
             if not response:
                 logger.warning(f"No transactions found for order {order_id}")
                 return []
-            return [transform_order_transaction(transaction) for transaction in response]
+            
+            # Handle case where response is a string
+            if isinstance(response, str):
+                try:
+                    import json
+                    response = json.loads(response)
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse transaction response as JSON: {response}")
+                    return []
+            
+            # Handle case where response is a list
+            if isinstance(response, list):
+                return [transform_order_transaction(transaction) for transaction in response]
+            
+            # Handle case where response is a dictionary with a transactions field
+            if isinstance(response, dict) and 'transactions' in response:
+                return [transform_order_transaction(transaction) for transaction in response['transactions']]
+            
+            logger.warning(f"Unexpected response format for transactions: {response}")
+            return []
+            
         except Exception as e:
             logger.error(f"Error getting transactions for order {order_id}: {str(e)}")
             return []
 
-    def get_tasks(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Task], Dict[str, Any]]:
+    def get_tasks(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Task], Dict[str, Any]]:
         """Get a list of tasks.
         
         Args:
             contact_id: Optional contact ID to filter by
             limit: Maximum number of tasks to return
             offset: Offset for pagination
+            since: Optional timestamp to get tasks modified since
             db_session: Optional database session for processing related data
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
@@ -340,12 +444,17 @@ class KeapClient(KeapBaseClient):
             - Dictionary containing pagination metadata
         """
         try:
-            params = {'limit': limit, 'offset': offset}
-
-            if contact_id:
-                params['contact_id'] = contact_id
-
-            # Get tasks directly from the tasks endpoint
+            # Set default order to 'due_date' for tasks
+            if 'order' not in additional_params:
+                additional_params['order'] = 'due_date'
+                
+            params = self._prepare_params(
+                limit=limit, 
+                offset=offset, 
+                since=since,
+                contact_id=contact_id,
+                **additional_params
+            )
             response = self.get('tasks', params)
             return transform_list_response(response, transform_task)
         except Exception as e:
@@ -368,14 +477,16 @@ class KeapClient(KeapBaseClient):
             logger.error(f"Error fetching task {task_id}: {str(e)}")
             raise
 
-    def get_notes(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Note], Dict[str, Any]]:
+    def get_notes(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Note], Dict[str, Any]]:
         """Get a list of notes.
         
         Args:
             contact_id: Optional contact ID to filter by
             limit: Maximum number of notes to return
             offset: Offset for pagination
+            since: Optional timestamp to get notes modified since
             db_session: Optional database session for processing related data
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
@@ -383,12 +494,17 @@ class KeapClient(KeapBaseClient):
             - Dictionary containing pagination metadata
         """
         try:
-            params = {'limit': limit, 'offset': offset, 'order': 'id'}
-
-            if contact_id:
-                params['contact_id'] = contact_id
-
-            # Get notes directly from the notes endpoint
+            # Set default order to 'date_created' for notes
+            if 'order' not in additional_params:
+                additional_params['order'] = 'date_created'
+                
+            params = self._prepare_params(
+                limit=limit, 
+                offset=offset, 
+                since=since,
+                contact_id=contact_id,
+                **additional_params
+            )
             response = self.get('notes', params)
             return transform_list_response(response, transform_note)
         except Exception as e:
@@ -411,20 +527,27 @@ class KeapClient(KeapBaseClient):
             logger.error(f"Error fetching note {note_id}: {str(e)}")
             raise
 
-    def get_campaigns(self, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Campaign], Dict[str, Any]]:
+    def get_campaigns(self, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Campaign], Dict[str, Any]]:
         """Get a list of campaigns.
         
         Args:
             limit: Maximum number of campaigns to return
             offset: Offset for pagination
+            since: Optional timestamp to get campaigns modified since
             db_session: Optional database session for processing related data
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
             - List of Campaign objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
+        params = self._prepare_params(
+            limit=limit, 
+            offset=offset, 
+            since=since,
+            **additional_params
+        )
         response = self.get('campaigns', params)
         return transform_list_response(response, transform_campaign)
 
@@ -442,23 +565,29 @@ class KeapClient(KeapBaseClient):
             logger.warning(f"No sequences found for campaign {campaign_id}")
             return []
 
-    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Subscription], Dict[str, Any]]:
+    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Subscription], Dict[str, Any]]:
         """Get a list of subscriptions.
         
         Args:
             contact_id: Optional contact ID to filter by
             limit: Maximum number of subscriptions to return
             offset: Offset for pagination
+            since: Optional timestamp to get subscriptions modified since
             db_session: Optional database session for processing related data
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
             - List of Subscription objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
-        if contact_id:
-            params['contact_id'] = contact_id
+        params = self._prepare_params(
+            limit=limit, 
+            offset=offset, 
+            since=since,
+            contact_id=contact_id,
+            **additional_params
+        )
         response = self.get('subscriptions', params)
         return transform_list_response(response, transform_subscription)
 
@@ -472,20 +601,27 @@ class KeapClient(KeapBaseClient):
         response = self.get('account/profile')
         return transform_account_profile(response)
 
-    def get_affiliates(self, limit: int = 50, offset: int = 0, db_session=None) -> Tuple[List[Affiliate], Dict[str, Any]]:
+    def get_affiliates(self, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Affiliate], Dict[str, Any]]:
         """Get a list of affiliates.
         
         Args:
             limit: Maximum number of affiliates to return
             offset: Offset for pagination
+            since: Optional timestamp to get affiliates modified since
             db_session: Optional database session for processing related data
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
             - List of Affiliate objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
+        params = self._prepare_params(
+            limit=limit, 
+            offset=offset, 
+            since=since,
+            **additional_params
+        )
         response = self.get('affiliates', params)
         return transform_list_response(response, transform_affiliate)
 
@@ -494,54 +630,75 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'affiliates/{affiliate_id}')
         return transform_affiliate(response)
 
-    def get_affiliate_commissions(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> Tuple[List[AffiliateCommission], Dict[str, Any]]:
+    def get_affiliate_commissions(self, affiliate_id: int, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[AffiliateCommission], Dict[str, Any]]:
         """Get commissions for an affiliate.
         
         Args:
             affiliate_id: The ID of the affiliate
             limit: Maximum number of commissions to return
             offset: Offset for pagination
+            since: Optional timestamp to get commissions modified since
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
             - List of AffiliateCommission objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
+        params = self._prepare_params(
+            limit=limit, 
+            offset=offset, 
+            since=since,
+            **additional_params
+        )
         response = self.get(f'affiliates/{affiliate_id}/commissions', params)
         return transform_list_response(response, transform_affiliate_commission)
 
-    def get_affiliate_programs(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> Tuple[List[AffiliateProgram], Dict[str, Any]]:
+    def get_affiliate_programs(self, affiliate_id: int, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[AffiliateProgram], Dict[str, Any]]:
         """Get programs for an affiliate.
         
         Args:
             affiliate_id: The ID of the affiliate
             limit: Maximum number of programs to return
             offset: Offset for pagination
+            since: Optional timestamp to get programs modified since
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
             - List of AffiliateProgram objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
+        params = self._prepare_params(
+            limit=limit, 
+            offset=offset, 
+            since=since,
+            **additional_params
+        )
         response = self.get(f'affiliates/{affiliate_id}/programs', params)
         return transform_list_response(response, transform_affiliate_program)
 
-    def get_affiliate_redirects(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> Tuple[List[AffiliateRedirect], Dict[str, Any]]:
+    def get_affiliate_redirects(self, affiliate_id: int, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[AffiliateRedirect], Dict[str, Any]]:
         """Get redirects for an affiliate.
         
         Args:
             affiliate_id: The ID of the affiliate
             limit: Maximum number of redirects to return
             offset: Offset for pagination
+            since: Optional timestamp to get redirects modified since
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
             - List of AffiliateRedirect objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
+        params = self._prepare_params(
+            limit=limit, 
+            offset=offset, 
+            since=since,
+            **additional_params
+        )
         response = self.get(f'affiliates/{affiliate_id}/redirects', params)
         return transform_list_response(response, transform_affiliate_redirect)
 
@@ -550,62 +707,90 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'affiliates/{affiliate_id}/summary')
         return transform_affiliate_summary(response)
 
-    def get_affiliate_clawbacks(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> Tuple[List[AffiliateClawback], Dict[str, Any]]:
+    def get_affiliate_clawbacks(self, affiliate_id: int, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[AffiliateClawback], Dict[str, Any]]:
         """Get clawbacks for an affiliate.
         
         Args:
             affiliate_id: The ID of the affiliate
             limit: Maximum number of clawbacks to return
             offset: Offset for pagination
+            since: Optional timestamp to get clawbacks modified since
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
             - List of AffiliateClawback objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
+        params = self._prepare_params(
+            limit=limit, 
+            offset=offset, 
+            since=since,
+            **additional_params
+        )
         response = self.get(f'affiliates/{affiliate_id}/clawbacks', params)
         return transform_list_response(response, transform_affiliate_clawback)
 
-    def get_affiliate_payments(self, affiliate_id: int, limit: int = 50, offset: int = 0) -> Tuple[List[AffiliatePayment], Dict[str, Any]]:
+    def get_affiliate_payments(self, affiliate_id: int, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[AffiliatePayment], Dict[str, Any]]:
         """Get payments for an affiliate.
         
         Args:
             affiliate_id: The ID of the affiliate
             limit: Maximum number of payments to return
             offset: Offset for pagination
+            since: Optional timestamp to get payments modified since
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
             - List of AffiliatePayment objects
             - Dictionary containing pagination metadata
         """
-        params = {'limit': limit, 'offset': offset, 'order': 'id'}
+        params = self._prepare_params(
+            limit=limit, 
+            offset=offset, 
+            since=since,
+            **additional_params
+        )
         response = self.get(f'affiliates/{affiliate_id}/payments', params)
         return transform_list_response(response, transform_affiliate_payment)
 
-    def get_contact_tags(self, contact_id: int) -> Tuple[List[Tag], Dict[str, Any]]:
+    def get_contact_tags(self, contact_id: int, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[Tag], Dict[str, Any]]:
         """Get a list of tags applied to a specific contact.
         
         Args:
             contact_id: The ID of the contact to get tags for
+            limit: Maximum number of tags to return
+            offset: Offset for pagination
+            since: Optional timestamp to get tags modified since
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
             - List of Tag objects
             - Dictionary containing pagination metadata
         """
-        response = self.get(f'contacts/{contact_id}/tags')
+        params = self._prepare_params(
+            limit=limit, 
+            offset=offset, 
+            since=since,
+            **additional_params
+        )
+        response = self.get(f'contacts/{contact_id}/tags', params)
         # Use a different transformer for the applied tags response
         items = [transform_applied_tag(tag_data) for tag_data in response.get('tags', [])]
         pagination = {'next': None, 'count': len(items), 'total': len(items)}
         return items, pagination
 
-    def get_contact_credit_cards(self, contact_id: int) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    def get_contact_credit_cards(self, contact_id: int, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """Get credit cards for a specific contact.
         
         Args:
             contact_id: The ID of the contact
+            limit: Maximum number of credit cards to return
+            offset: Offset for pagination
+            since: Optional timestamp to get credit cards modified since
+            additional_params: Additional parameters to pass to the API
             
         Returns:
             Tuple containing:
@@ -613,8 +798,14 @@ class KeapClient(KeapBaseClient):
             - Dictionary containing pagination metadata
         """
         try:
+            params = self._prepare_params(
+                limit=limit, 
+                offset=offset, 
+                since=since,
+                **additional_params
+            )
             endpoint = f"contacts/{contact_id}/creditCards"
-            response = self._make_request('GET', endpoint)
+            response = self._make_request('GET', endpoint, params=params)
 
             # The API returns a list directly, not wrapped in an object
             if isinstance(response, list):

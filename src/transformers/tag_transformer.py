@@ -1,10 +1,9 @@
-from datetime import datetime
 from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 from src.utils.logger import get_logger
 
-from src.models.models import Tag
+from src.models.models import Contact, Tag, TagCategory
 
 logger = get_logger(__name__)
 
@@ -26,34 +25,26 @@ class TagTransformer:
                 logger.error(f"Invalid tag data format: {type(data)}")
                 return None
 
-            # Create or update tag
-            tag = db.query(Tag).filter_by(id=data.get('id')).first()
-        if not tag:
-            tag = Tag(id=data.get('id'))
-        db.add(tag)
+            # Create tag instance
+            tag = Tag(**data)
 
-        # Update basic fields
-        tag.name = data.get('name')
-        tag.description = data.get('description')
-        tag.category = data.get('category')
+            # Handle relationships
+            if 'contacts' in data:
+                for contact_data in data['contacts']:
+                    contact = db.query(Contact).filter_by(id=contact_data['id']).first()
+                    if contact:
+                        tag.contacts.append(contact)
 
-        # Handle created_at timestamp
-        created_at = data.get('created_at')
-        if created_at:
-            try:
-                if isinstance(created_at, str):
-                    tag.created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                elif isinstance(created_at, (int, float)):
-                    tag.created_at = datetime.fromtimestamp(created_at / 1000)  # Convert milliseconds to seconds
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Error parsing created_at for tag {tag.id}: {e}")
-                tag.created_at = datetime.utcnow()
-        else:
+            # Handle category relationship
+            if 'category' in data:
+                category = db.query(TagCategory).filter_by(id=data['category']['id']).first()
+                if category:
+                    tag.category = category
 
-    tag.created_at = datetime.utcnow()
+            # Merge the tag itself
+            db.merge(tag)
+            return tag
 
-    return tag
-
-    except Exception as e:
-    logger.error(f"Error transforming tag data: {e}")
-    return None
+        except Exception as e:
+            logger.error(f"Error transforming tag data: {str(e)}")
+            return None

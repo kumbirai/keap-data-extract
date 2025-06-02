@@ -13,7 +13,7 @@ from src.database.config import SessionLocal
 from src.models.models import (Affiliate, Campaign, Contact, CustomField, Note, Opportunity, Order, Product, Subscription, Tag, TagCategory, Task)
 from src.utils.error_logger import ErrorLogger
 from src.utils.logging_config import setup_logging
-from src.utils.transformers import (transform_credit_card, transform_tag)
+from src.transformers.transformers import (transform_credit_card, transform_tag)
 
 # Create logs and checkpoints directories if they don't exist
 os.makedirs('logs', exist_ok=True)
@@ -153,12 +153,15 @@ class CheckpointManager:
         logger.debug(f"Saved checkpoint for {entity_type} at offset {offset}")
 
     def get_checkpoint(self, entity_type: str) -> int:
+        """Get the current offset for an entity type."""
         return self.checkpoints.get(entity_type, {}).get('offset', 0)
 
     def get_last_loaded_timestamp(self, entity_type: str) -> Optional[str]:
+        """Get the last loaded timestamp for an entity type."""
         return self.checkpoints.get(entity_type, {}).get('last_loaded')
 
     def clear_checkpoints(self) -> None:
+        """Clear all checkpoints."""
         self.checkpoints = {}
         if os.path.exists(self.checkpoint_file):
             os.remove(self.checkpoint_file)
@@ -179,6 +182,7 @@ class CheckpointManager:
         if update:
             last_loaded = self.get_last_loaded_timestamp(entity_type)
             if last_loaded:
+                # If we have a last_loaded timestamp, use it for the since parameter
                 params['since'] = last_loaded
 
         return params
@@ -216,13 +220,20 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
     error_logger = ErrorLogger()
 
     try:
-        # Get initial offset from checkpoint
-        offset = checkpoint_manager.get_checkpoint(entity_type)
-        logger.info(f"Starting contact load from offset {offset}")
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
+
+        # If update is True and we have a last_loaded timestamp, we don't need to use offset
+        if update and 'since' in query_params:
+            offset = 0
+        else:
+            offset = checkpoint_manager.get_checkpoint(entity_type)
+
+        logger.info(f"Starting contact load with params: {query_params}")
 
         while True:
             # Make API call with limit and offset
-            items, pagination = client.get_contacts(limit=batch_size, offset=offset, db_session=db)
+            items, pagination = client.get_contacts(limit=batch_size, offset=offset, **query_params)
             logger.debug(f"Retrieved {len(items)} contacts from API")
 
             if not items:
@@ -240,9 +251,6 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
                     full_contact = client.get_contact(item.id)
                     logger.info(f"Retrieved full contact details for ID: {item.id}")
 
-                    # First, check if contact exists
-                    existing_contact = db.query(Contact).filter(Contact.id == item.id).first()
-
                     # Get credit cards for this contact
                     try:
                         credit_cards_data, _ = client.get_contact_credit_cards(item.id)
@@ -258,27 +266,41 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
                     tag_ids = [tag.id for tag in tags]
                     existing_tags = db.query(Tag).filter(Tag.id.in_(tag_ids)).all()
 
+                    # First, check if contact exists
+                    existing_contact = db.query(Contact).filter(Contact.id == item.id).first()
+
                     if existing_contact:
-                        # Update existing contact's attributes
+                        # Create update dictionary for contact attributes, excluding relationships
+                        update_dict = {}
                         for key, value in full_contact.__dict__.items():
-                            if not key.startswith('_'):
-                                setattr(existing_contact, key, value)
+                            if not key.startswith('_') and not isinstance(value, (list, dict)):
+                                update_dict[key] = value
 
+                        # Update the contact attributes
+                        db.query(Contact).filter(Contact.id == item.id).update(update_dict)
+                        
+                        # Get the updated contact
+                        contact = db.query(Contact).filter(Contact.id == item.id).first()
+                        
                         # Clear existing relationships
-                        existing_contact.credit_cards = []
-                        existing_contact.tags = []
-
+                        contact.credit_cards = []
+                        contact.tags = []
+                        
                         # Add new relationships
-                        existing_contact.credit_cards = credit_cards
-                        existing_contact.tags = existing_tags
-
-                        db.add(existing_contact)
+                        contact.credit_cards = credit_cards
+                        contact.tags = existing_tags
                     else:
-                        # Add new contact with relationships
+                        # For new contacts, set relationships before adding
                         full_contact.credit_cards = credit_cards
                         full_contact.tags = existing_tags
+                        
+                        # Add the new contact to the session
                         db.add(full_contact)
 
+                    # Flush to ensure all changes are persisted
+                    db.flush()
+                    
+                    # Commit the transaction
                     db.commit()
                     success_count += 1
                     logger.debug(f"Successfully processed contact ID: {item.id}")
@@ -328,13 +350,20 @@ def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: Check
     error_logger = ErrorLogger()
 
     try:
-        # Get initial offset from checkpoint
-        offset = checkpoint_manager.get_checkpoint(entity_type)
-        logger.info(f"Starting tag load from offset {offset}")
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
+
+        # If update is True and we have a last_loaded timestamp, we don't need to use offset
+        if update and 'since' in query_params:
+            offset = 0
+        else:
+            offset = checkpoint_manager.get_checkpoint(entity_type)
+
+        logger.info(f"Starting tag load with params: {query_params}")
 
         while True:
             # Get batch of tags
-            items, pagination = client.get_tags(limit=batch_size, offset=offset)
+            items, pagination = client.get_tags(limit=batch_size, offset=offset, **query_params)
             if not items:
                 logger.info("No more tags to load")
                 break
@@ -448,8 +477,11 @@ def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: Chec
     failed_count = 0
 
     try:
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(checkpoint_entity_type, update)
+
         logger.info("Fetching custom fields from all entity models")
-        all_custom_fields = client.get_all_custom_fields()
+        all_custom_fields = client.get_all_custom_fields(**query_params)
 
         for model_entity_type, custom_fields in all_custom_fields.items():
             logger.info(f"Processing {len(custom_fields)} custom fields from {model_entity_type} model")
@@ -471,10 +503,10 @@ def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: Chec
                         for key, value in field.__dict__.items():
                             if not key.startswith('_'):
                                 setattr(existing_field, key, value)
-                        db.add(existing_field)
+                        db.merge(existing_field)
                     else:
                         # Add new field
-                        db.add(field)
+                        db.merge(field)
 
                     # Commit after each field to maintain atomicity
                     db.commit()
@@ -517,19 +549,27 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
     total_records = 0
     success_count = 0
     failed_count = 0
+    error_logger = ErrorLogger()
 
-    while True:
-        # Get current offset from checkpoint
-        current_offset = checkpoint_manager.get_checkpoint(entity_type)
-        logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
+    try:
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
 
-        try:
+        # If update is True and we have a last_loaded timestamp, we don't need to use offset
+        if update and 'since' in query_params:
+            offset = 0
+        else:
+            offset = checkpoint_manager.get_checkpoint(entity_type)
+
+        logger.info(f"Starting opportunities load with params: {query_params}")
+
+        while True:
             # Make API call with limit and offset
-            items, pagination = client.get_opportunities(limit=batch_size, offset=current_offset)
+            items, pagination = client.get_opportunities(limit=batch_size, offset=offset, **query_params)
 
             if not items:
                 # Mark as completed when no more items
-                checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, offset, completed=True)
                 break
 
             # Process items
@@ -542,57 +582,80 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
                     full_opportunity = client.get_opportunity(item.id)
                     logger.info(f"Retrieved full opportunity details for ID: {item.id}")
 
+                    # Ensure title is never None
+                    if full_opportunity.title is None:
+                        full_opportunity.title = ""
+
                     # First, check if opportunity exists
                     existing_opportunity = db_session.query(Opportunity).filter(Opportunity.id == item.id).first()
 
                     if existing_opportunity:
-                        # Update existing opportunity's attributes
+                        # Create update dictionary for opportunity attributes, excluding relationships
+                        update_dict = {}
                         for key, value in full_opportunity.__dict__.items():
-                            if not key.startswith('_'):
-                                setattr(existing_opportunity, key, value)
+                            if not key.startswith('_') and not isinstance(value, (list, dict)):
+                                update_dict[key] = value
 
+                        # Update the opportunity attributes
+                        db_session.query(Opportunity).filter(Opportunity.id == item.id).update(update_dict)
+                        
+                        # Get the updated opportunity
+                        opportunity = db_session.query(Opportunity).filter(Opportunity.id == item.id).first()
+                        
                         # Clear existing relationships
-                        existing_opportunity.custom_field_values = []
-                        existing_opportunity.contacts = []
-
-                        # Add new relationships using SQLAlchemy's native relationship handling
-                        existing_opportunity.custom_field_values = full_opportunity.custom_field_values
-                        existing_opportunity.contacts = full_opportunity.contacts
-
-                        # After adding existing opportunity
-                        db_session.add(existing_opportunity)
+                        opportunity.contacts = []
+                        opportunity.custom_field_values = []
+                        
+                        # Add new relationships
+                        opportunity.contacts = full_opportunity.contacts
+                        opportunity.custom_field_values = full_opportunity.custom_field_values
                     else:
-                        # Add new opportunity with relationships
+                        # For new opportunities, set relationships before adding
+                        full_opportunity.contacts = full_opportunity.contacts
+                        full_opportunity.custom_field_values = full_opportunity.custom_field_values
+                        
+                        # Add the new opportunity to the session
                         db_session.add(full_opportunity)
 
-                        # Commit after each opportunity
-                        db_session.commit()
-                        success_count += 1
+                    # Flush to ensure all changes are persisted
+                    db_session.flush()
+                    
+                    # Commit the transaction
+                    db_session.commit()
+                    success_count += 1
+                    logger.debug(f"Successfully processed opportunity ID: {item.id}")
 
                 except Exception as e:
-                    failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
                     db_session.rollback()
+                    failed_count += 1
+                    log_error(error_logger, entity_type, item.id, e)
+                    logger.error(f"Error processing opportunity ID {item.id}: {e}")
                     continue
 
-            # Update offset based on next URL if available
-            if pagination.get('next'):
-                next_offset = client._parse_next_url(pagination['next'])
-                if next_offset is not None:
-                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
-                else:
-                    # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
-            else:
-                # No more pages
-                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
+            # Update checkpoint with new offset
+            new_offset = offset + len(items)
+            checkpoint_manager.save_checkpoint(entity_type, new_offset)
+
+            # Check if we've reached the end
+            if not pagination.get('next'):
+                logger.info("Reached end of opportunities")
+                checkpoint_manager.save_checkpoint(entity_type, new_offset, completed=True)
                 break
 
-        except Exception as e:
-            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
-            db_session.rollback()
-            # Don't raise the exception, continue with next batch
-            continue
+            # Parse next URL to get the offset for the next batch
+            next_offset = client._parse_next_url(pagination.get('next'))
+            if next_offset is None:
+                logger.info("No more pages to load")
+                checkpoint_manager.save_checkpoint(entity_type, new_offset, completed=True)
+                break
+
+            offset = next_offset
+
+        logger.info(f"Completed loading opportunities. Total: {total_records}, Success: {success_count}, Failed: {failed_count}")
+
+    except Exception as e:
+        logger.error(f"Error in load_opportunities: {str(e)}")
+        raise
 
     return total_records, success_count, failed_count
 
@@ -607,13 +670,16 @@ def load_products(client: KeapClient, db_session: Session, checkpoint_manager: C
     error_logger = ErrorLogger()
 
     try:
-        # Get initial offset from checkpoint
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
+
         offset = checkpoint_manager.get_checkpoint(entity_type)
-        logger.info(f"Starting product load from offset {offset}")
+
+        logger.info(f"Starting products load with params: {query_params}")
 
         while True:
             # Make API call with limit and offset
-            items, pagination = client.get_products(limit=batch_size, offset=offset, db_session=db_session)
+            items, pagination = client.get_products(limit=batch_size, offset=offset, **query_params)
             logger.debug(f"Retrieved {len(items)} products from API")
 
             if not items:
@@ -693,13 +759,20 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
     error_logger = ErrorLogger()
 
     try:
-        # Get initial offset from checkpoint
-        offset = checkpoint_manager.get_checkpoint(entity_type)
-        logger.info(f"Starting order load from offset {offset}")
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
+
+        # If update is True and we have a last_loaded timestamp, we don't need to use offset
+        if update and 'since' in query_params:
+            offset = 0
+        else:
+            offset = checkpoint_manager.get_checkpoint(entity_type)
+
+        logger.info(f"Starting orders load with params: {query_params}")
 
         while True:
             # Make API call with limit and offset
-            items, pagination = client.get_orders(limit=batch_size, offset=offset, db_session=db_session)
+            items, pagination = client.get_orders(limit=batch_size, offset=offset, **query_params)
             logger.debug(f"Retrieved {len(items)} orders from API")
 
             if not items:
@@ -718,37 +791,67 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
                     logger.info(f"Retrieved full order details for ID: {item.id}")
 
                     # Get order payments
-                    payments, _ = client.get_order_payments(item.id)
+                    payments = client.get_order_payments(item.id)
                     logger.info(f"Retrieved {len(payments)} payments for order ID: {item.id}")
 
                     # Get order transactions
-                    transactions, _ = client.get_order_transactions(item.id)
-                    logger.info(f"Retrieved {len(transactions)} transactions for order ID: {item.id}")
+                    try:
+                        transactions = client.get_order_transactions(item.id)
+                        logger.info(f"Retrieved {len(transactions)} transactions for order ID: {item.id}")
+                    except Exception as e:
+                        logger.warning(f"Error getting transactions for order {item.id}: {str(e)}")
+                        transactions = []
 
                     # First, check if order exists
                     existing_order = db_session.query(Order).filter(Order.id == item.id).first()
 
                     if existing_order:
-                        # Update existing order's attributes
+                        # Create update dictionary for order attributes, excluding relationships
+                        update_dict = {}
                         for key, value in full_order.__dict__.items():
-                            if not key.startswith('_'):
-                                setattr(existing_order, key, value)
+                            if not key.startswith('_') and not isinstance(value, (list, dict)):
+                                # Set affiliate IDs to None if they are 0
+                                if key in ['lead_affiliate_id', 'sales_affiliate_id'] and value == 0:
+                                    value = None
+                                update_dict[key] = value
 
+                        # Update the order attributes
+                        db_session.query(Order).filter(Order.id == item.id).update(update_dict)
+                        
+                        # Get the updated order
+                        order = db_session.query(Order).filter(Order.id == item.id).first()
+                        
                         # Clear existing relationships
-                        existing_order.payments = []
-                        existing_order.transactions = []
-
+                        order.payments = []
+                        order.transactions = []
+                        order.contacts = []
+                        order.custom_field_values = []
+                        
                         # Add new relationships
-                        existing_order.payments = payments
-                        existing_order.transactions = transactions
-
-                        db_session.add(existing_order)
+                        order.payments = payments
+                        order.transactions = transactions
+                        order.contacts = full_order.contacts
+                        order.custom_field_values = full_order.custom_field_values
                     else:
-                        # Add new order with relationships
+                        # For new orders, set relationships before adding
+                        # Set affiliate IDs to None if they are 0
+                        if full_order.lead_affiliate_id == 0:
+                            full_order.lead_affiliate_id = None
+                        if full_order.sales_affiliate_id == 0:
+                            full_order.sales_affiliate_id = None
+                            
                         full_order.payments = payments
                         full_order.transactions = transactions
+                        full_order.contacts = full_order.contacts
+                        full_order.custom_field_values = full_order.custom_field_values
+                        
+                        # Add the new order to the session
                         db_session.add(full_order)
 
+                    # Flush to ensure all changes are persisted
+                    db_session.flush()
+                    
+                    # Commit the transaction
                     db_session.commit()
                     success_count += 1
                     logger.debug(f"Successfully processed order ID: {item.id}")
@@ -798,13 +901,20 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
     error_logger = ErrorLogger()
 
     try:
-        # Get initial offset from checkpoint
-        offset = checkpoint_manager.get_checkpoint(entity_type)
-        logger.info(f"Starting task load from offset {offset}")
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
+
+        # If update is True and we have a last_loaded timestamp, we don't need to use offset
+        if update and 'since' in query_params:
+            offset = 0
+        else:
+            offset = checkpoint_manager.get_checkpoint(entity_type)
+
+        logger.info(f"Starting tasks load with params: {query_params}")
 
         while True:
             # Make API call with limit and offset
-            items, pagination = client.get_tasks(limit=batch_size, offset=offset, db_session=db_session)
+            items, pagination = client.get_tasks(limit=batch_size, offset=offset, **query_params)
             logger.debug(f"Retrieved {len(items)} tasks from API")
 
             if not items:
@@ -826,15 +936,37 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
                     existing_task = db_session.query(Task).filter(Task.id == item.id).first()
 
                     if existing_task:
-                        # Update existing task's attributes
+                        # Create update dictionary for task attributes, excluding relationships
+                        update_dict = {}
                         for key, value in full_task.__dict__.items():
-                            if not key.startswith('_'):
-                                setattr(existing_task, key, value)
-                        db_session.add(existing_task)
+                            if not key.startswith('_') and not isinstance(value, (list, dict)):
+                                update_dict[key] = value
+
+                        # Update the task attributes
+                        db_session.query(Task).filter(Task.id == item.id).update(update_dict)
+                        
+                        # Get the updated task
+                        task = db_session.query(Task).filter(Task.id == item.id).first()
+                        
+                        # Clear existing relationships
+                        task.contacts = []
+                        task.custom_field_values = []
+                        
+                        # Add new relationships
+                        task.contacts = full_task.contacts
+                        task.custom_field_values = full_task.custom_field_values
                     else:
-                        # Add new task
+                        # For new tasks, set relationships before adding
+                        full_task.contacts = full_task.contacts
+                        full_task.custom_field_values = full_task.custom_field_values
+                        
+                        # Add the new task to the session
                         db_session.add(full_task)
 
+                    # Flush to ensure all changes are persisted
+                    db_session.flush()
+                    
+                    # Commit the transaction
                     db_session.commit()
                     success_count += 1
                     logger.debug(f"Successfully processed task ID: {item.id}")
@@ -882,18 +1014,25 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
     success_count = 0
     failed_count = 0
 
-    while True:
-        # Get current offset from checkpoint
-        current_offset = checkpoint_manager.get_checkpoint(entity_type)
-        logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
+    try:
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
 
-        try:
+        # If update is True and we have a last_loaded timestamp, we don't need to use offset
+        if update and 'since' in query_params:
+            offset = 0
+        else:
+            offset = checkpoint_manager.get_checkpoint(entity_type)
+
+        logger.info(f"Starting notes load with params: {query_params}")
+
+        while True:
             # Make API call with limit and offset
-            items, pagination = client.get_notes(limit=batch_size, offset=current_offset)
+            items, pagination = client.get_notes(limit=batch_size, offset=offset, **query_params)
 
             if not items:
                 # Mark as completed when no more items
-                checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, offset, completed=True)
                 break
 
             # Process items
@@ -915,27 +1054,32 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
                             if not key.startswith('_'):
                                 setattr(existing_note, key, value)
 
+                        # Merge the note first
+                        merged_note = db_session.merge(existing_note)
+                        db_session.flush()  # Ensure the note is persisted
+
                         # Clear existing relationships
-                        existing_note.contacts = []
-                        existing_note.custom_field_values = []
+                        merged_note.contacts = []
+                        merged_note.custom_field_values = []
 
-                        # Add new relationships using SQLAlchemy's native relationship handling
-                        existing_note.contacts = full_note.contacts
-                        existing_note.custom_field_values = full_note.custom_field_values
-
-                        # After adding existing note
-                        db_session.add(existing_note)
+                        # Add new relationships
+                        merged_note.contacts = full_note.contacts
+                        merged_note.custom_field_values = full_note.custom_field_values
                     else:
-                        # Add new note with relationships
-                        db_session.add(full_note)
+                        # Add new note
+                        merged_note = db_session.merge(full_note)
+                        db_session.flush()  # Ensure the note is persisted
 
-                        # Commit after each note
-                        db_session.commit()
-                        success_count += 1
+                        # Add relationships
+                        merged_note.contacts = full_note.contacts
+                        merged_note.custom_field_values = full_note.custom_field_values
+
+                    db_session.commit()
+                    success_count += 1
 
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
+                    log_error(error_logger, entity_type, item.id, e, {'offset': offset})
                     db_session.rollback()
                     continue
 
@@ -946,17 +1090,17 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
                     checkpoint_manager.save_checkpoint(entity_type, next_offset)
                 else:
                     # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
+                    checkpoint_manager.save_checkpoint(entity_type, offset + len(items))
             else:
                 # No more pages
-                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, offset + len(items), completed=True)
                 break
 
-        except Exception as e:
-            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
-            db_session.rollback()
-            # Don't raise the exception, continue with next batch
-            continue
+        logger.info(f"Completed loading notes. Total: {total_records}, Success: {success_count}, Failed: {failed_count}")
+
+    except Exception as e:
+        logger.error(f"Error in load_notes: {str(e)}")
+        raise
 
     return total_records, success_count, failed_count
 
@@ -971,13 +1115,20 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
     error_logger = ErrorLogger()
 
     try:
-        # Get initial offset from checkpoint
-        offset = checkpoint_manager.get_checkpoint(entity_type)
-        logger.info(f"Starting campaign load from offset {offset}")
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
+
+        # If update is True and we have a last_loaded timestamp, we don't need to use offset
+        if update and 'since' in query_params:
+            offset = 0
+        else:
+            offset = checkpoint_manager.get_checkpoint(entity_type)
+
+        logger.info(f"Starting campaigns load with params: {query_params}")
 
         while True:
             # Make API call with limit and offset
-            items, pagination = client.get_campaigns(limit=batch_size, offset=offset, db_session=db_session)
+            items, pagination = client.get_campaigns(limit=batch_size, offset=offset, **query_params)
             logger.debug(f"Retrieved {len(items)} campaigns from API")
 
             if not items:
@@ -999,15 +1150,37 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
                     existing_campaign = db_session.query(Campaign).filter(Campaign.id == item.id).first()
 
                     if existing_campaign:
-                        # Update existing campaign's attributes
+                        # Create update dictionary for campaign attributes, excluding relationships
+                        update_dict = {}
                         for key, value in full_campaign.__dict__.items():
-                            if not key.startswith('_'):
-                                setattr(existing_campaign, key, value)
-                        db_session.add(existing_campaign)
+                            if not key.startswith('_') and not isinstance(value, (list, dict)):
+                                update_dict[key] = value
+
+                        # Update the campaign attributes
+                        db_session.query(Campaign).filter(Campaign.id == item.id).update(update_dict)
+                        
+                        # Get the updated campaign
+                        campaign = db_session.query(Campaign).filter(Campaign.id == item.id).first()
+                        
+                        # Clear existing relationships
+                        campaign.contacts = []
+                        campaign.custom_field_values = []
+                        
+                        # Add new relationships
+                        campaign.contacts = full_campaign.contacts
+                        campaign.custom_field_values = full_campaign.custom_field_values
                     else:
-                        # Add new campaign
+                        # For new campaigns, set relationships before adding
+                        full_campaign.contacts = full_campaign.contacts
+                        full_campaign.custom_field_values = full_campaign.custom_field_values
+                        
+                        # Add the new campaign to the session
                         db_session.add(full_campaign)
 
+                    # Flush to ensure all changes are persisted
+                    db_session.flush()
+                    
+                    # Commit the transaction
                     db_session.commit()
                     success_count += 1
                     logger.debug(f"Successfully processed campaign ID: {item.id}")
@@ -1055,18 +1228,25 @@ def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manag
     success_count = 0
     failed_count = 0
 
-    while True:
-        # Get current offset from checkpoint
-        current_offset = checkpoint_manager.get_checkpoint(entity_type)
-        logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
+    try:
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
 
-        try:
+        # If update is True and we have a last_loaded timestamp, we don't need to use offset
+        if update and 'since' in query_params:
+            offset = 0
+        else:
+            offset = checkpoint_manager.get_checkpoint(entity_type)
+
+        logger.info(f"Starting subscriptions load with params: {query_params}")
+
+        while True:
             # Make API call with limit and offset
-            items, pagination = client.get_subscriptions(limit=batch_size, offset=current_offset)
+            items, pagination = client.get_subscriptions(limit=batch_size, offset=offset, **query_params)
 
             if not items:
                 # Mark as completed when no more items
-                checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, offset, completed=True)
                 break
 
             # Process items
@@ -1088,29 +1268,35 @@ def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manag
                             if not key.startswith('_'):
                                 setattr(existing_subscription, key, value)
 
+                        # Merge the subscription first
+                        merged_subscription = db_session.merge(existing_subscription)
+                        db_session.flush()  # Ensure the subscription is persisted
+
                         # Clear existing relationships
-                        existing_subscription.contacts = []
-                        existing_subscription.products = []
-                        existing_subscription.custom_field_values = []
+                        merged_subscription.contacts = []
+                        merged_subscription.products = []
+                        merged_subscription.custom_field_values = []
 
-                        # Add new relationships using SQLAlchemy's native relationship handling
-                        existing_subscription.contacts = full_subscription.contacts
-                        existing_subscription.products = full_subscription.products
-                        existing_subscription.custom_field_values = full_subscription.custom_field_values
-
-                        # After adding existing subscription
-                        db_session.add(existing_subscription)
+                        # Add new relationships
+                        merged_subscription.contacts = full_subscription.contacts
+                        merged_subscription.products = full_subscription.products
+                        merged_subscription.custom_field_values = full_subscription.custom_field_values
                     else:
-                        # Add new subscription with relationships
-                        db_session.add(full_subscription)
+                        # Add new subscription
+                        merged_subscription = db_session.merge(full_subscription)
+                        db_session.flush()  # Ensure the subscription is persisted
 
-                        # Commit after each subscription
-                        db_session.commit()
-                        success_count += 1
+                        # Add relationships
+                        merged_subscription.contacts = full_subscription.contacts
+                        merged_subscription.products = full_subscription.products
+                        merged_subscription.custom_field_values = full_subscription.custom_field_values
+
+                    db_session.commit()
+                    success_count += 1
 
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
+                    log_error(error_logger, entity_type, item.id, e, {'offset': offset})
                     db_session.rollback()
                     continue
 
@@ -1121,17 +1307,17 @@ def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manag
                     checkpoint_manager.save_checkpoint(entity_type, next_offset)
                 else:
                     # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
+                    checkpoint_manager.save_checkpoint(entity_type, offset + len(items))
             else:
                 # No more pages
-                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
+                checkpoint_manager.save_checkpoint(entity_type, offset + len(items), completed=True)
                 break
 
-        except Exception as e:
-            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
-            db_session.rollback()
-            # Don't raise the exception, continue with next batch
-            continue
+        logger.info(f"Completed loading subscriptions. Total: {total_records}, Success: {success_count}, Failed: {failed_count}")
+
+    except Exception as e:
+        logger.error(f"Error in load_subscriptions: {str(e)}")
+        raise
 
     return total_records, success_count, failed_count
 
@@ -1160,101 +1346,115 @@ def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: Checkpo
     success_count = 0
     failed_count = 0
 
-    while True:
-        # Get current offset from checkpoint
-        current_offset = checkpoint_manager.get_checkpoint(entity_type)
-        logger.info(f"Loading {entity_type} - Current offset: {current_offset}")
+    try:
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
 
-        # Make API call with limit and offset
-        items, pagination = client.get_affiliates(limit=batch_size, offset=current_offset)
+        # If update is True and we have a last_loaded timestamp, we don't need to use offset
+        if update and 'since' in query_params:
+            offset = 0
+        else:
+            offset = checkpoint_manager.get_checkpoint(entity_type)
 
-        if not items:
-            # Mark as completed when no more items
-            checkpoint_manager.save_checkpoint(entity_type, current_offset, completed=True)
-            break
+        logger.info(f"Starting affiliates load with params: {query_params}")
 
-        try:
-            # Process items
-            for item in items:
-                total_records += 1
-                try:
-                    logger.info(f"Processing affiliate ID: {item.id}")
+        while True:
+            # Make API call with limit and offset
+            items, pagination = client.get_affiliates(limit=batch_size, offset=offset, **query_params)
 
-                    # Get full affiliate details
-                    full_affiliate = client.get_affiliate(item.id)
-                    logger.info(f"Retrieved full affiliate details for ID: {item.id}")
-
-                    # Get affiliate commissions
-                    commissions = client.get_affiliate_commissions(item.id)
-                    logger.info(f"Retrieved {len(commissions)} commissions for affiliate ID: {item.id}")
-
-                    # Get affiliate payments
-                    payments = client.get_affiliate_payments(item.id)
-                    logger.info(f"Retrieved {len(payments)} payments for affiliate ID: {item.id}")
-
-                    # Get affiliate clawbacks
-                    clawbacks = client.get_affiliate_clawbacks(item.id)
-                    logger.info(f"Retrieved {len(clawbacks)} clawbacks for affiliate ID: {item.id}")
-
-                    # First, check if affiliate exists
-                    existing_affiliate = db.query(Affiliate).filter(Affiliate.id == item.id).first()
-
-                    if existing_affiliate:
-                        # Update existing affiliate's attributes
-                        for key, value in full_affiliate.__dict__.items():
-                            if not key.startswith('_'):
-                                setattr(existing_affiliate, key, value)
-
-                        # Clear existing relationships
-                        existing_affiliate.commissions = []
-                        existing_affiliate.payments = []
-                        existing_affiliate.clawbacks = []
-
-                        # Add new relationships
-                        existing_affiliate.commissions = commissions
-                        existing_affiliate.payments = payments
-                        existing_affiliate.clawbacks = clawbacks
-
-                        # After adding existing affiliate
-                        db.add(existing_affiliate)
-                        db.flush()  # Ensure affiliate is persisted
-                        db.commit()
-                        success_count += 1
-
-                    else:
-                        # Add new affiliate with relationships
-                        full_affiliate.commissions = commissions
-                        full_affiliate.payments = payments
-                        full_affiliate.clawbacks = clawbacks
-
-                        db.add(full_affiliate)
-                        db.flush()  # Ensure affiliate is persisted
-                        db.commit()
-                        success_count += 1
-
-                except Exception as e:
-                    failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e, {'offset': current_offset})
-                    db.rollback()
-                    continue
-
-            # Update offset based on next URL if available
-            if pagination.get('next'):
-                next_offset = client._parse_next_url(pagination['next'])
-                if next_offset is not None:
-                    checkpoint_manager.save_checkpoint(entity_type, next_offset)
-                else:
-                    # If we can't parse the next URL, increment by batch size
-                    checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items))
-            else:
-                # No more pages
-                checkpoint_manager.save_checkpoint(entity_type, current_offset + len(items), completed=True)
+            if not items:
+                # Mark as completed when no more items
+                checkpoint_manager.save_checkpoint(entity_type, offset, completed=True)
                 break
 
-        except Exception as e:
-            log_error(error_logger, entity_type, 0, e, {'offset': current_offset})
-            db.rollback()
-            raise
+            try:
+                # Process items
+                for item in items:
+                    total_records += 1
+                    try:
+                        logger.info(f"Processing affiliate ID: {item.id}")
+
+                        # Get full affiliate details
+                        full_affiliate = client.get_affiliate(item.id)
+                        logger.info(f"Retrieved full affiliate details for ID: {item.id}")
+
+                        # Get affiliate commissions
+                        commissions = client.get_affiliate_commissions(item.id)
+                        logger.info(f"Retrieved {len(commissions)} commissions for affiliate ID: {item.id}")
+
+                        # Get affiliate payments
+                        payments = client.get_affiliate_payments(item.id)
+                        logger.info(f"Retrieved {len(payments)} payments for affiliate ID: {item.id}")
+
+                        # Get affiliate clawbacks
+                        clawbacks = client.get_affiliate_clawbacks(item.id)
+                        logger.info(f"Retrieved {len(clawbacks)} clawbacks for affiliate ID: {item.id}")
+
+                        # First, check if affiliate exists
+                        existing_affiliate = db.query(Affiliate).filter(Affiliate.id == item.id).first()
+
+                        if existing_affiliate:
+                            # Update existing affiliate's attributes
+                            for key, value in full_affiliate.__dict__.items():
+                                if not key.startswith('_'):
+                                    setattr(existing_affiliate, key, value)
+
+                            # Clear existing relationships
+                            existing_affiliate.commissions = []
+                            existing_affiliate.payments = []
+                            existing_affiliate.clawbacks = []
+
+                            # Add new relationships
+                            existing_affiliate.commissions = commissions
+                            existing_affiliate.payments = payments
+                            existing_affiliate.clawbacks = clawbacks
+
+                            # After adding existing affiliate
+                            db.merge(existing_affiliate)
+                            db.flush()  # Ensure affiliate is persisted
+                            db.commit()
+                            success_count += 1
+
+                        else:
+                            # Add new affiliate with relationships
+                            full_affiliate.commissions = commissions
+                            full_affiliate.payments = payments
+                            full_affiliate.clawbacks = clawbacks
+
+                            db.merge(full_affiliate)
+                            db.flush()  # Ensure affiliate is persisted
+                            db.commit()
+                            success_count += 1
+
+                    except Exception as e:
+                        failed_count += 1
+                        log_error(error_logger, entity_type, item.id, e, {'offset': offset})
+                        db.rollback()
+                        continue
+
+                # Update offset based on next URL if available
+                if pagination.get('next'):
+                    next_offset = client._parse_next_url(pagination['next'])
+                    if next_offset is not None:
+                        checkpoint_manager.save_checkpoint(entity_type, next_offset)
+                    else:
+                        # If we can't parse the next URL, increment by batch size
+                        checkpoint_manager.save_checkpoint(entity_type, offset + len(items))
+                else:
+                    # No more pages
+                    checkpoint_manager.save_checkpoint(entity_type, offset + len(items), completed=True)
+                    break
+
+            except Exception as e:
+                log_error(error_logger, entity_type, 0, e, {'offset': offset})
+                db.rollback()
+                raise
+
+        logger.info(f"Completed loading affiliates. Total: {total_records}, Success: {success_count}, Failed: {failed_count}")
+
+    except Exception as e:
+        logger.error(f"Error in load_affiliates: {str(e)}")
+        raise
 
     return total_records, success_count, failed_count
 
@@ -1268,6 +1468,9 @@ def load_affiliate_commissions(client: KeapClient, db: Session, checkpoint_manag
     failed_count = 0
     error_logger = ErrorLogger()
 
+    # Get query parameters based on update flag
+    query_params = checkpoint_manager.get_query_params(entity_type, update)
+
     # Get all affiliate IDs
     affiliate_ids = [a.id for a in db.query(Affiliate).all()]
 
@@ -1277,11 +1480,10 @@ def load_affiliate_commissions(client: KeapClient, db: Session, checkpoint_manag
 
         while True:
             try:
-                # Get query parameters including since timestamp if applicable
-                query_params = checkpoint_manager.get_query_params(entity_type, update)
-                query_params.update({'limit': batch_size, 'offset': current_offset})
+                # Add affiliate_id to query params
+                current_params = {**query_params, 'limit': batch_size, 'offset': current_offset}
 
-                commissions, pagination = client.get_affiliate_commissions(affiliate_id, **query_params)
+                commissions, pagination = client.get_affiliate_commissions(affiliate_id, **current_params)
                 logger.info(f"Received {len(commissions) if commissions else 0} commissions for affiliate {affiliate_id}")
 
                 if not commissions:
@@ -1340,67 +1542,74 @@ def load_affiliate_programs(client: KeapClient, db: Session, checkpoint_manager:
     failed_count = 0
     error_logger = ErrorLogger()
 
-    # Get all affiliate IDs
-    affiliate_ids = [a.id for a in db.query(Affiliate).all()]
+    try:
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
 
-    for affiliate_id in affiliate_ids:
-        logger.info(f"Processing programs for affiliate ID: {affiliate_id}")
-        current_offset = 0  # Reset offset for each affiliate
+        # Get all affiliate IDs
+        affiliate_ids = [a.id for a in db.query(Affiliate).all()]
 
-        while True:
-            try:
-                # Get query parameters including since timestamp if applicable
-                query_params = checkpoint_manager.get_query_params(entity_type, update)
-                query_params.update({'limit': batch_size, 'offset': current_offset})
+        for affiliate_id in affiliate_ids:
+            logger.info(f"Processing programs for affiliate ID: {affiliate_id}")
+            current_offset = 0  # Reset offset for each affiliate
 
-                programs, pagination = client.get_affiliate_programs(affiliate_id, **query_params)
-                logger.info(f"Received {len(programs) if programs else 0} programs for affiliate {affiliate_id}")
+            while True:
+                try:
+                    # Add affiliate_id to query params
+                    current_params = {**query_params, 'limit': batch_size, 'offset': current_offset}
 
-                if not programs:
-                    break
+                    programs, pagination = client.get_affiliate_programs(affiliate_id, **current_params)
+                    logger.info(f"Received {len(programs) if programs else 0} programs for affiliate {affiliate_id}")
 
-                for program in programs:
-                    total_records += 1
-                    try:
-                        # Validate program data
-                        if not program.affiliate_id:
-                            raise ValueError("Affiliate ID is required for program")
+                    if not programs:
+                        break
 
-                        # Use merge operation to handle both inserts and updates
-                        merged_program = db.merge(program)
-                        success_count += 1
-                        db.commit()
-                    except Exception as e:
-                        failed_count += 1
-                        log_error(error_logger, entity_type, program.id, e, {'program_data': program.__dict__})
-                        db.rollback()
-                        continue
+                    for program in programs:
+                        total_records += 1
+                        try:
+                            # Validate program data
+                            if not program.affiliate_id:
+                                raise ValueError("Affiliate ID is required for program")
 
-                logger.debug(f"Successfully processed batch of {success_count} programs for affiliate {affiliate_id}")
+                            # Use merge operation to handle both inserts and updates
+                            merged_program = db.merge(program)
+                            success_count += 1
+                            db.commit()
+                        except Exception as e:
+                            failed_count += 1
+                            log_error(error_logger, entity_type, program.id, e, {'program_data': program.__dict__})
+                            db.rollback()
+                            continue
 
-                # Update offset based on next URL if available
-                if pagination.get('next'):
-                    next_offset = client._parse_next_url(pagination['next'])
-                    if next_offset is not None:
-                        current_offset = next_offset
+                    logger.debug(f"Successfully processed batch of {success_count} programs for affiliate {affiliate_id}")
+
+                    # Update offset based on next URL if available
+                    if pagination.get('next'):
+                        next_offset = client._parse_next_url(pagination['next'])
+                        if next_offset is not None:
+                            current_offset = next_offset
+                        else:
+                            # If we can't parse the next URL, increment by batch size
+                            current_offset += len(programs)
                     else:
-                        # If we can't parse the next URL, increment by batch size
-                        current_offset += len(programs)
-                else:
-                    # No more pages for this affiliate
-                    break
+                        # No more pages for this affiliate
+                        break
 
-            except Exception as e:
-                log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id, 'offset': current_offset})
-                db.rollback()
-                # Continue with next batch
-                current_offset += batch_size
-                continue
+                except Exception as e:
+                    log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id, 'offset': current_offset})
+                    db.rollback()
+                    # Continue with next batch
+                    current_offset += batch_size
+                    continue
 
-    # Mark as completed since we process all affiliates
-    checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
-    logger.info(f"Loaded {total_records} programs in total")
-    return total_records, success_count, failed_count
+        # Mark as completed since we process all affiliates
+        checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
+        logger.info(f"Loaded {total_records} programs in total (Success: {success_count}, Failed: {failed_count})")
+        return total_records, success_count, failed_count
+
+    except Exception as e:
+        logger.error(f"Error in load_affiliate_programs: {str(e)}")
+        raise
 
 
 @audit_load_operation
@@ -1410,58 +1619,80 @@ def load_affiliate_redirects(client: KeapClient, db: Session, checkpoint_manager
     total_records = 0
     success_count = 0
     failed_count = 0
+    error_logger = ErrorLogger()
 
-    # Get all affiliate IDs
-    affiliate_ids = [a.id for a in db.query(Affiliate).all()]
+    try:
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
 
-    for affiliate_id in affiliate_ids:
-        logger.info(f"Processing redirects for affiliate ID: {affiliate_id}")
-        try:
-            # Get query parameters including since timestamp if applicable
-            query_params = checkpoint_manager.get_query_params(entity_type, update)
-            query_params.update({'limit': batch_size, 'offset': 0  # Reset offset for each affiliate
-                                 })
+        # Get all affiliate IDs
+        affiliate_ids = [a.id for a in db.query(Affiliate).all()]
 
-            redirects = client.get_affiliate_redirects(affiliate_id, **query_params)
-            logger.info(f"Received {len(redirects) if redirects else 0} redirects for affiliate {affiliate_id}")
+        for affiliate_id in affiliate_ids:
+            logger.info(f"Processing redirects for affiliate ID: {affiliate_id}")
+            current_offset = 0  # Reset offset for each affiliate
 
-            if not redirects:
-                continue
-
-            for redirect in redirects:
-                total_records += 1
+            while True:
                 try:
-                    # Validate redirect data
-                    if not redirect.affiliate_id:
-                        raise ValueError("Affiliate ID is required for redirect")
+                    # Add affiliate_id to query params
+                    current_params = {**query_params, 'limit': batch_size, 'offset': current_offset}
 
-                    # Use merge operation to handle both inserts and updates
-                    merged_redirect = db.merge(redirect)
-                    success_count += 1
-                    db.commit()
+                    redirects, pagination = client.get_affiliate_redirects(affiliate_id, **current_params)
+                    logger.info(f"Received {len(redirects) if redirects else 0} redirects for affiliate {affiliate_id}")
+
+                    if not redirects:
+                        break
+
+                    for redirect in redirects:
+                        total_records += 1
+                        try:
+                            # Validate redirect data
+                            if not redirect.affiliate_id:
+                                raise ValueError("Affiliate ID is required for redirect")
+
+                            # Use merge operation to handle both inserts and updates
+                            merged_redirect = db.merge(redirect)
+                            success_count += 1
+                            db.commit()
+                        except Exception as e:
+                            failed_count += 1
+                            log_error(error_logger, entity_type, redirect.id, e, {'redirect_data': redirect.__dict__})
+                            db.rollback()
+                            continue
+
+                    logger.debug(f"Successfully processed batch of {success_count} redirects for affiliate {affiliate_id}")
+
+                    # Update offset based on next URL if available
+                    if pagination.get('next'):
+                        next_offset = client._parse_next_url(pagination['next'])
+                        if next_offset is not None:
+                            current_offset = next_offset
+                        else:
+                            # If we can't parse the next URL, increment by batch size
+                            current_offset += len(redirects)
+                    else:
+                        # No more pages for this affiliate
+                        break
+
                 except Exception as e:
-                    failed_count += 1
-                    log_error(error_logger, entity_type, redirect.id, e, {'redirect_data': redirect.__dict__})
+                    log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id, 'offset': current_offset})
                     db.rollback()
+                    # Continue with next batch
+                    current_offset += batch_size
                     continue
 
-            logger.debug(f"Successfully processed batch of {success_count} redirects for affiliate {affiliate_id}")
+        # Mark as completed since we process all affiliates
+        checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
+        logger.info(f"Loaded {total_records} redirects in total (Success: {success_count}, Failed: {failed_count})")
+        return total_records, success_count, failed_count
 
-            if failed_count > 0:
-                logger.warning(f"Failed to process {failed_count} redirects")
-
-        except Exception as e:
-            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
-            continue
-
-    # Mark as completed since we process all affiliates
-    checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
-    logger.info(f"Loaded {total_records} redirects in total")
-    return total_records, success_count, failed_count
+    except Exception as e:
+        logger.error(f"Error in load_affiliate_redirects: {str(e)}")
+        raise
 
 
 @audit_load_operation
-def load_affiliate_summaries(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager) -> tuple:
+def load_affiliate_summaries(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
     """Load all affiliate summaries."""
     entity_type = 'affiliate_summaries'
     total_records = 0
@@ -1469,13 +1700,18 @@ def load_affiliate_summaries(client: KeapClient, db: Session, checkpoint_manager
     failed_count = 0
     error_logger = ErrorLogger()
 
+    # Get query parameters based on update flag
+    query_params = checkpoint_manager.get_query_params(entity_type, update)
+
     # Get all affiliate IDs
     affiliate_ids = [a.id for a in db.query(Affiliate).all()]
 
     for affiliate_id in affiliate_ids:
         logger.info(f"Processing summary for affiliate ID: {affiliate_id}")
         try:
-            summary = client.get_affiliate_summary(affiliate_id)
+            # Add affiliate_id to query params
+            current_params = {**query_params, 'affiliate_id': affiliate_id}
+            summary = client.get_affiliate_summary(**current_params)
             logger.info(f"Received summary for affiliate {affiliate_id}")
 
             if not summary:
@@ -1518,54 +1754,76 @@ def load_affiliate_clawbacks(client: KeapClient, db: Session, checkpoint_manager
     total_records = 0
     success_count = 0
     failed_count = 0
+    error_logger = ErrorLogger()
 
-    # Get all affiliate IDs
-    affiliate_ids = [a.id for a in db.query(Affiliate).all()]
+    try:
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
 
-    for affiliate_id in affiliate_ids:
-        logger.info(f"Processing clawbacks for affiliate ID: {affiliate_id}")
-        try:
-            # Get query parameters including since timestamp if applicable
-            query_params = checkpoint_manager.get_query_params(entity_type, update)
-            query_params.update({'limit': batch_size, 'offset': 0  # Reset offset for each affiliate
-                                 })
+        # Get all affiliate IDs
+        affiliate_ids = [a.id for a in db.query(Affiliate).all()]
 
-            clawbacks = client.get_affiliate_clawbacks(affiliate_id, **query_params)
-            logger.info(f"Received {len(clawbacks) if clawbacks else 0} clawbacks for affiliate {affiliate_id}")
+        for affiliate_id in affiliate_ids:
+            logger.info(f"Processing clawbacks for affiliate ID: {affiliate_id}")
+            current_offset = 0  # Reset offset for each affiliate
 
-            if not clawbacks:
-                continue
-
-            for clawback in clawbacks:
-                total_records += 1
+            while True:
                 try:
-                    # Validate clawback data
-                    if not clawback.affiliate_id:
-                        raise ValueError("Affiliate ID is required for clawback")
+                    # Add affiliate_id to query params
+                    current_params = {**query_params, 'limit': batch_size, 'offset': current_offset}
 
-                    # Use merge operation to handle both inserts and updates
-                    merged_clawback = db.merge(clawback)
-                    success_count += 1
-                    db.commit()
+                    clawbacks, pagination = client.get_affiliate_clawbacks(affiliate_id, **current_params)
+                    logger.info(f"Received {len(clawbacks) if clawbacks else 0} clawbacks for affiliate {affiliate_id}")
+
+                    if not clawbacks:
+                        break
+
+                    for clawback in clawbacks:
+                        total_records += 1
+                        try:
+                            # Validate clawback data
+                            if not clawback.affiliate_id:
+                                raise ValueError("Affiliate ID is required for clawback")
+
+                            # Use merge operation to handle both inserts and updates
+                            merged_clawback = db.merge(clawback)
+                            success_count += 1
+                            db.commit()
+                        except Exception as e:
+                            failed_count += 1
+                            log_error(error_logger, entity_type, clawback.id, e, {'clawback_data': clawback.__dict__})
+                            db.rollback()
+                            continue
+
+                    logger.debug(f"Successfully processed batch of {success_count} clawbacks for affiliate {affiliate_id}")
+
+                    # Update offset based on next URL if available
+                    if pagination.get('next'):
+                        next_offset = client._parse_next_url(pagination['next'])
+                        if next_offset is not None:
+                            current_offset = next_offset
+                        else:
+                            # If we can't parse the next URL, increment by batch size
+                            current_offset += len(clawbacks)
+                    else:
+                        # No more pages for this affiliate
+                        break
+
                 except Exception as e:
-                    failed_count += 1
-                    log_error(error_logger, entity_type, clawback.id, e, {'clawback_data': clawback.__dict__})
+                    log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id, 'offset': current_offset})
                     db.rollback()
+                    # Continue with next batch
+                    current_offset += batch_size
                     continue
 
-            logger.debug(f"Successfully processed batch of {success_count} clawbacks for affiliate {affiliate_id}")
+        # Mark as completed since we process all affiliates
+        checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
+        logger.info(f"Loaded {total_records} clawbacks in total (Success: {success_count}, Failed: {failed_count})")
+        return total_records, success_count, failed_count
 
-            if failed_count > 0:
-                logger.warning(f"Failed to process {failed_count} clawbacks")
-
-        except Exception as e:
-            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
-            continue
-
-    # Mark as completed since we process all affiliates
-    checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
-    logger.info(f"Loaded {total_records} clawbacks in total")
-    return total_records, success_count, failed_count
+    except Exception as e:
+        logger.error(f"Error in load_affiliate_clawbacks: {str(e)}")
+        raise
 
 
 @audit_load_operation
@@ -1575,54 +1833,76 @@ def load_affiliate_payments(client: KeapClient, db: Session, checkpoint_manager:
     total_records = 0
     success_count = 0
     failed_count = 0
+    error_logger = ErrorLogger()
 
-    # Get all affiliate IDs
-    affiliate_ids = [a.id for a in db.query(Affiliate).all()]
+    try:
+        # Get query parameters based on update flag
+        query_params = checkpoint_manager.get_query_params(entity_type, update)
 
-    for affiliate_id in affiliate_ids:
-        logger.info(f"Processing payments for affiliate ID: {affiliate_id}")
-        try:
-            # Get query parameters including since timestamp if applicable
-            query_params = checkpoint_manager.get_query_params(entity_type, update)
-            query_params.update({'limit': batch_size, 'offset': 0  # Reset offset for each affiliate
-                                 })
+        # Get all affiliate IDs
+        affiliate_ids = [a.id for a in db.query(Affiliate).all()]
 
-            payments = client.get_affiliate_payments(affiliate_id, **query_params)
-            logger.info(f"Received {len(payments) if payments else 0} payments for affiliate {affiliate_id}")
+        for affiliate_id in affiliate_ids:
+            logger.info(f"Processing payments for affiliate ID: {affiliate_id}")
+            current_offset = 0  # Reset offset for each affiliate
 
-            if not payments:
-                continue
-
-            for payment in payments:
-                total_records += 1
+            while True:
                 try:
-                    # Validate payment data
-                    if not payment.affiliate_id:
-                        raise ValueError("Affiliate ID is required for payment")
+                    # Add affiliate_id to query params
+                    current_params = {**query_params, 'limit': batch_size, 'offset': current_offset}
 
-                    # Use merge operation to handle both inserts and updates
-                    merged_payment = db.merge(payment)
-                    success_count += 1
-                    db.commit()
+                    payments, pagination = client.get_affiliate_payments(affiliate_id, **current_params)
+                    logger.info(f"Received {len(payments) if payments else 0} payments for affiliate {affiliate_id}")
+
+                    if not payments:
+                        break
+
+                    for payment in payments:
+                        total_records += 1
+                        try:
+                            # Validate payment data
+                            if not payment.affiliate_id:
+                                raise ValueError("Affiliate ID is required for payment")
+
+                            # Use merge operation to handle both inserts and updates
+                            merged_payment = db.merge(payment)
+                            success_count += 1
+                            db.commit()
+                        except Exception as e:
+                            failed_count += 1
+                            log_error(error_logger, entity_type, payment.id, e, {'payment_data': payment.__dict__})
+                            db.rollback()
+                            continue
+
+                    logger.debug(f"Successfully processed batch of {success_count} payments for affiliate {affiliate_id}")
+
+                    # Update offset based on next URL if available
+                    if pagination.get('next'):
+                        next_offset = client._parse_next_url(pagination['next'])
+                        if next_offset is not None:
+                            current_offset = next_offset
+                        else:
+                            # If we can't parse the next URL, increment by batch size
+                            current_offset += len(payments)
+                    else:
+                        # No more pages for this affiliate
+                        break
+
                 except Exception as e:
-                    failed_count += 1
-                    log_error(error_logger, entity_type, payment.id, e, {'payment_data': payment.__dict__})
+                    log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id, 'offset': current_offset})
                     db.rollback()
+                    # Continue with next batch
+                    current_offset += batch_size
                     continue
 
-            logger.debug(f"Successfully processed batch of {success_count} payments for affiliate {affiliate_id}")
+        # Mark as completed since we process all affiliates
+        checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
+        logger.info(f"Loaded {total_records} payments in total (Success: {success_count}, Failed: {failed_count})")
+        return total_records, success_count, failed_count
 
-            if failed_count > 0:
-                logger.warning(f"Failed to process {failed_count} payments")
-
-        except Exception as e:
-            log_error(error_logger, entity_type, affiliate_id, e, {'affiliate_id': affiliate_id})
-            continue
-
-    # Mark as completed since we process all affiliates
-    checkpoint_manager.save_checkpoint(entity_type, total_records, completed=True)
-    logger.info(f"Loaded {total_records} payments in total")
-    return total_records, success_count, failed_count
+    except Exception as e:
+        logger.error(f"Error in load_affiliate_payments: {str(e)}")
+        raise
 
 
 def main(update: bool = False):
@@ -1728,7 +2008,7 @@ def main(update: bool = False):
         success_count += redirects_success
         failed_count += redirects_failed
 
-        summaries_total, summaries_success, summaries_failed = load_affiliate_summaries(client, db, checkpoint_manager)
+        summaries_total, summaries_success, summaries_failed = load_affiliate_summaries(client, db, checkpoint_manager, update=update)
         total_records += summaries_total
         success_count += summaries_success
         failed_count += summaries_failed

@@ -501,7 +501,7 @@ notes = transform_list_response(api_data, transform_note)
 
 ```python
 from src.api import KeapClient
-from src.utils.transformers import transform_contact, transform_list_response
+from src.transformers.transformers import transform_contact, transform_list_response
 
 client = KeapClient()
 

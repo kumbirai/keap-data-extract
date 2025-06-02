@@ -1,39 +1,48 @@
 from datetime import datetime
 
 from sqlalchemy.orm import Session
+from src.utils.logger import get_logger
 
 from src.models.models import Contact, Product, Subscription
+
+logger = get_logger(__name__)
 
 
 class SubscriptionTransformer:
     @staticmethod
     def transform(data: dict, db: Session) -> Subscription:
         """Transform subscription data from Keap API to database model."""
-        # Create or update subscription
-        subscription = db.query(Subscription).filter_by(id=data['id']).first()
-        if not subscription:
-            subscription = Subscription(id=data['id'])
-            db.add(subscription)
+        try:
+            # Create or update subscription
+            subscription = db.query(Subscription).filter_by(id=data['id']).first()
+            if not subscription:
+                subscription = Subscription(id=data['id'])
 
-        # Update basic fields
-        subscription.status = data.get('status')
-        subscription.next_bill_date = data.get('next_bill_date')
-        subscription.last_updated = datetime.utcnow()
+            # Update basic fields
+            subscription.status = data.get('status')
+            subscription.next_bill_date = data.get('next_bill_date')
+            subscription.last_updated = datetime.utcnow()
 
-        # Handle contact relationship
-        if 'contact' in data:
-            contact = db.query(Contact).filter_by(id=data['contact']['id']).first()
-            if contact:
-                # Clear existing contact relationships
+            # Handle contact relationship
+            if 'contacts' in data:
                 subscription.contacts = []
-                subscription.contacts.append(contact)
+                for contact_data in data['contacts']:
+                    contact = db.query(Contact).filter_by(id=contact_data['id']).first()
+                    if contact:
+                        subscription.contacts.append(contact)
 
-        # Handle product relationship
-        if 'product' in data:
-            product = db.query(Product).filter_by(id=data['product']['id']).first()
-            if product:
-                # Clear existing product relationships
+            # Handle product relationship
+            if 'products' in data:
                 subscription.products = []
-                subscription.products.append(product)
+                for product_data in data['products']:
+                    product = db.query(Product).filter_by(id=product_data['id']).first()
+                    if product:
+                        subscription.products.append(product)
 
-        return subscription
+            # Merge the subscription itself
+            db.merge(subscription)
+            return subscription
+
+        except Exception as e:
+            logger.error(f"Error transforming subscription data: {str(e)}")
+            raise
