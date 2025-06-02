@@ -1956,12 +1956,19 @@ def main(update: bool = False):
         success_count += contacts_success
         failed_count += contacts_failed
 
-        # Load remaining data
+        # Load opportunities
         opportunities_total, opportunities_success, opportunities_failed = load_opportunities(client, db, checkpoint_manager, update=update)
         total_records += opportunities_total
         success_count += opportunities_success
         failed_count += opportunities_failed
 
+        # Load affiliate data before orders since orders reference affiliates
+        affiliates_total, affiliates_success, affiliates_failed = load_affiliates(client, db, checkpoint_manager, update=update)
+        total_records += affiliates_total
+        success_count += affiliates_success
+        failed_count += affiliates_failed
+
+        # Now load orders which depend on affiliates
         orders_total, orders_success, orders_failed = load_orders(client, db, checkpoint_manager, update=update)
         total_records += orders_total
         success_count += orders_success
@@ -1987,12 +1994,7 @@ def main(update: bool = False):
         success_count += subscriptions_success
         failed_count += subscriptions_failed
 
-        # Load affiliate data after contacts are loaded
-        affiliates_total, affiliates_success, affiliates_failed = load_affiliates(client, db, checkpoint_manager, update=update)
-        total_records += affiliates_total
-        success_count += affiliates_success
-        failed_count += affiliates_failed
-
+        # Load remaining affiliate-related data
         commissions_total, commissions_success, commissions_failed = load_affiliate_commissions(client, db, checkpoint_manager, update=update)
         total_records += commissions_total
         success_count += commissions_success

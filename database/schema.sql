@@ -305,14 +305,132 @@ CREATE TABLE contact_custom_field_values (
     UNIQUE(contact_id, custom_field_id)
 );
 
+CREATE TABLE opportunities (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(200) NOT NULL,
+    stage JSONB,
+    value FLOAT,
+    probability FLOAT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    next_action_date TIMESTAMP,
+    next_action_notes TEXT,
+    source_type VARCHAR(50),
+    source_id INTEGER,
+    pipeline_id INTEGER,
+    pipeline_stage_id INTEGER,
+    owner_id INTEGER,
+    last_updated_utc_millis BIGINT
+);
+
 CREATE TABLE opportunity_custom_field_values (
-    id INTEGER PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     opportunity_id INTEGER REFERENCES opportunities(id) ON DELETE CASCADE,
     custom_field_id INTEGER REFERENCES custom_fields(id) ON DELETE CASCADE,
     value TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(opportunity_id, custom_field_id)
+);
+
+CREATE TABLE tasks (
+    id SERIAL PRIMARY KEY,
+    contact_id INTEGER REFERENCES contacts(id),
+    title VARCHAR(200),
+    notes TEXT,
+    priority task_priority,
+    status task_status,
+    type VARCHAR(50),
+    due_date TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE orders (
+    id INTEGER PRIMARY KEY,
+    title VARCHAR(200),
+    status order_status,
+    recurring BOOLEAN,
+    total NUMERIC(10,2),
+    notes TEXT,
+    terms TEXT,
+    order_type VARCHAR(50),
+    source_type order_source_type,
+    creation_date TIMESTAMP WITH TIME ZONE,
+    modification_date TIMESTAMP WITH TIME ZONE,
+    order_date TIMESTAMP WITH TIME ZONE,
+    lead_affiliate_id INTEGER REFERENCES affiliates(id),
+    sales_affiliate_id INTEGER REFERENCES affiliates(id),
+    total_paid NUMERIC(10,2),
+    total_due NUMERIC(10,2),
+    refund_total NUMERIC(10,2),
+    allow_payment BOOLEAN,
+    allow_paypal BOOLEAN,
+    invoice_number INTEGER,
+    contact_id INTEGER REFERENCES contacts(id),
+    product_id INTEGER,
+    payment_gateway_id INTEGER REFERENCES payment_gateways(id),
+    subscription_plan_id INTEGER REFERENCES subscription_plans(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE order_items (
+    id INTEGER PRIMARY KEY,
+    order_id INTEGER REFERENCES orders(id),
+    job_recurring_id INTEGER,
+    name VARCHAR(200),
+    description TEXT,
+    type VARCHAR(50),
+    notes TEXT,
+    quantity INTEGER,
+    cost NUMERIC(10,2),
+    price NUMERIC(10,2),
+    discount NUMERIC(10,2),
+    special_id INTEGER,
+    special_amount NUMERIC(10,2),
+    special_pct_or_amt INTEGER,
+    product_id INTEGER REFERENCES products(id),
+    subscription_plan_id INTEGER REFERENCES subscription_plans(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE order_payments (
+    id INTEGER PRIMARY KEY,
+    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+    amount NUMERIC(10,2) NOT NULL,
+    note TEXT,
+    invoice_id INTEGER,
+    payment_id INTEGER,
+    pay_date TIMESTAMP NOT NULL,
+    pay_status VARCHAR(50),
+    last_updated TIMESTAMP,
+    skip_commission BOOLEAN DEFAULT FALSE,
+    refund_invoice_payment_id INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE order_transactions (
+    id INTEGER PRIMARY KEY,
+    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+    test BOOLEAN DEFAULT FALSE,
+    amount NUMERIC(10,2) NOT NULL,
+    currency VARCHAR(10),
+    gateway VARCHAR(50),
+    payment_date TIMESTAMP,
+    type VARCHAR(50),
+    status VARCHAR(100),
+    errors TEXT,
+    contact_id INTEGER REFERENCES contacts(id),
+    transaction_date TIMESTAMP,
+    gateway_account_name VARCHAR(100),
+    order_ids VARCHAR(100),
+    collection_method VARCHAR(50),
+    payment_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE order_custom_field_values (
@@ -320,38 +438,27 @@ CREATE TABLE order_custom_field_values (
     order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
     custom_field_id INTEGER REFERENCES custom_fields(id) ON DELETE CASCADE,
     value TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(order_id, custom_field_id)
 );
 
-CREATE TABLE subscription_custom_field_values (
+CREATE TABLE payment_plans (
     id INTEGER PRIMARY KEY,
-    subscription_id INTEGER REFERENCES subscriptions(id) ON DELETE CASCADE,
-    custom_field_id INTEGER REFERENCES custom_fields(id) ON DELETE CASCADE,
-    value TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(subscription_id, custom_field_id)
-);
-
-CREATE TABLE note_custom_field_values (
-    id INTEGER PRIMARY KEY,
-    note_id INTEGER REFERENCES notes(id) ON DELETE CASCADE,
-    custom_field_id INTEGER REFERENCES custom_fields(id) ON DELETE CASCADE,
-    value TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(note_id, custom_field_id)
-);
-
-CREATE TABLE payment_gateways (
-    id INTEGER PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    type VARCHAR(50),
-    is_active BOOLEAN DEFAULT TRUE,
-    credentials JSONB,
-    settings JSONB,
+    order_id INTEGER REFERENCES orders(id),
+    auto_charge BOOLEAN,
+    credit_card_id INTEGER,
+    days_between_payments INTEGER,
+    initial_payment_amount NUMERIC(10,2),
+    initial_payment_percent NUMERIC(5,2),
+    initial_payment_date DATE,
+    number_of_payments INTEGER,
+    merchant_account_id INTEGER,
+    merchant_account_name VARCHAR(200),
+    plan_start_date DATE,
+    payment_method_id VARCHAR(50),
+    max_charge_attempts INTEGER,
+    days_between_retries INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -371,91 +478,6 @@ CREATE TABLE shipping_information (
     zip VARCHAR(20),
     country VARCHAR(100),
     invoice_to_company BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE orders (
-    id INTEGER PRIMARY KEY,
-    title VARCHAR(200),
-    status order_status,
-    recurring BOOLEAN,
-    total DECIMAL(10,2),
-    notes TEXT,
-    terms TEXT,
-    order_type VARCHAR(50),
-    source_type order_source_type,
-    creation_date TIMESTAMP WITH TIME ZONE,
-    modification_date TIMESTAMP WITH TIME ZONE,
-    order_date TIMESTAMP WITH TIME ZONE,
-    lead_affiliate_id INTEGER REFERENCES affiliates(id),
-    sales_affiliate_id INTEGER REFERENCES affiliates(id),
-    total_paid DECIMAL(10,2),
-    total_due DECIMAL(10,2),
-    refund_total DECIMAL(10,2),
-    allow_payment BOOLEAN,
-    allow_paypal BOOLEAN,
-    invoice_number INTEGER,
-    contact_id INTEGER REFERENCES contacts(id),
-    product_id INTEGER REFERENCES products(id),
-    payment_gateway_id INTEGER REFERENCES payment_gateways(id),
-    subscription_plan_id INTEGER REFERENCES subscription_plans(id),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE order_items (
-    id INTEGER PRIMARY KEY,
-    order_id INTEGER REFERENCES orders(id),
-    job_recurring_id INTEGER,
-    name VARCHAR(200),
-    description TEXT,
-    type VARCHAR(50),
-    notes TEXT,
-    quantity INTEGER,
-    cost DECIMAL(10,2),
-    price DECIMAL(10,2),
-    discount DECIMAL(10,2),
-    special_id INTEGER,
-    special_amount DECIMAL(10,2),
-    special_pct_or_amt INTEGER,
-    product_id INTEGER REFERENCES products(id),
-    subscription_plan_id INTEGER REFERENCES subscription_plans(id),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE order_payments (
-    id INTEGER PRIMARY KEY,
-    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
-    amount DECIMAL(10,2) NOT NULL,
-    payment_date TIMESTAMP WITH TIME ZONE NOT NULL,
-    payment_type VARCHAR(50),
-    payment_status VARCHAR(50),
-    payment_gateway VARCHAR(50),
-    transaction_id VARCHAR(100),
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE order_transactions (
-    id INTEGER PRIMARY KEY,
-    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
-    transaction_date TIMESTAMP WITH TIME ZONE NOT NULL,
-    transaction_type VARCHAR(50),
-    transaction_status VARCHAR(50),
-    amount DECIMAL(10,2) NOT NULL,
-    payment_gateway VARCHAR(50),
-    gateway_transaction_id VARCHAR(100),
-    gateway_response_code VARCHAR(50),
-    gateway_response_message TEXT,
-    payment_type VARCHAR(50),
-    card_type VARCHAR(50),
-    card_last_four VARCHAR(4),
-    card_expiration_month INTEGER,
-    card_expiration_year INTEGER,
-    notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -487,26 +509,6 @@ CREATE TABLE product_options (
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE payment_plans (
-    id INTEGER PRIMARY KEY,
-    order_id INTEGER REFERENCES orders(id),
-    auto_charge BOOLEAN,
-    credit_card_id INTEGER,
-    days_between_payments INTEGER,
-    initial_payment_amount DECIMAL(10,2),
-    initial_payment_percent DECIMAL(5,2),
-    initial_payment_date DATE,
-    number_of_payments INTEGER,
-    merchant_account_id INTEGER,
-    merchant_account_name VARCHAR(200),
-    plan_start_date DATE,
-    payment_method_id VARCHAR(50),
-    max_charge_attempts INTEGER,
-    days_between_retries INTEGER,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE subscription_plans (
     id INTEGER PRIMARY KEY,
     product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
@@ -524,37 +526,6 @@ CREATE TABLE subscriptions (
     subscription_plan_id INTEGER REFERENCES subscription_plans(id),
     status subscription_status,
     next_bill_date TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE opportunities (
-    id SERIAL PRIMARY KEY,
-    title VARCHAR(200) NOT NULL,
-    stage JSONB,
-    value DOUBLE PRECISION,
-    probability DOUBLE PRECISION,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    next_action_date TIMESTAMP WITH TIME ZONE,
-    next_action_notes TEXT,
-    source_type VARCHAR(50),
-    source_id INTEGER,
-    pipeline_id INTEGER,
-    pipeline_stage_id INTEGER,
-    owner_id INTEGER,
-    last_updated_utc_millis BIGINT
-);
-
-CREATE TABLE tasks (
-    id INTEGER PRIMARY KEY,
-    contact_id INTEGER REFERENCES contacts(id),
-    title VARCHAR(200),
-    notes TEXT,
-    priority task_priority,
-    status task_status,
-    type VARCHAR(50),
-    due_date TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

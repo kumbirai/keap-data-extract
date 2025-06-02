@@ -202,7 +202,37 @@ def transform_order(api_data: Dict[str, Any]) -> Order:
     status = safe_enum_convert(api_data.get('status'), OrderStatus)
     source_type = safe_enum_convert(api_data.get('source_type'), OrderSourceType)
 
-    return Order(id=api_data.get('id'), title=api_data.get('title'), status=status, recurring=api_data.get('recurring'), total=api_data.get('total'), notes=api_data.get('notes'), terms=api_data.get('terms'), order_type=api_data.get('order_type'), source_type=source_type, creation_date=safe_parse_datetime(api_data.get('creation_date')), modification_date=safe_parse_datetime(api_data.get('modification_date')), order_date=safe_parse_datetime(api_data.get('order_date')), lead_affiliate_id=api_data.get('lead_affiliate_id'), sales_affiliate_id=api_data.get('sales_affiliate_id'), total_paid=api_data.get('total_paid'), total_due=api_data.get('total_due'), refund_total=api_data.get('refund_total'), allow_payment=api_data.get('allow_payment'), allow_paypal=api_data.get('allow_paypal'), invoice_number=api_data.get('invoice_number'), contact_id=api_data.get('contact_id'), product_id=api_data.get('product_id'))
+    # Handle product_id being '0' or 0
+    product_id = api_data.get('product_id')
+    if product_id in ('0', 0):
+        product_id = None
+
+    return Order(
+        id=api_data.get('id'),
+        title=api_data.get('title'),
+        status=status,
+        recurring=api_data.get('recurring'),
+        total=api_data.get('total'),
+        notes=api_data.get('notes'),
+        terms=api_data.get('terms'),
+        order_type=api_data.get('order_type'),
+        source_type=source_type,
+        creation_date=safe_parse_datetime(api_data.get('creation_date')),
+        modification_date=safe_parse_datetime(api_data.get('modification_date')),
+        order_date=safe_parse_datetime(api_data.get('order_date')),
+        lead_affiliate_id=api_data.get('lead_affiliate_id'),
+        sales_affiliate_id=api_data.get('sales_affiliate_id'),
+        total_paid=api_data.get('total_paid'),
+        total_due=api_data.get('total_due'),
+        refund_total=api_data.get('refund_total'),
+        allow_payment=api_data.get('allow_payment'),
+        allow_paypal=api_data.get('allow_paypal'),
+        invoice_number=api_data.get('invoice_number'),
+        contact_id=api_data.get('contact_id'),
+        product_id=product_id,
+        payment_gateway_id=api_data.get('payment_gateway_id'),
+        subscription_plan_id=api_data.get('subscription_plan_id')
+    )
 
 
 def transform_order_item(api_data: Dict[str, Any]) -> OrderItem:
@@ -216,15 +246,45 @@ def transform_order_payment(api_data: Dict[str, Any]) -> OrderPayment:
     if not isinstance(api_data, dict):
         api_data = api_data.__dict__
 
-    return OrderPayment(id=api_data.get('id'), order_id=api_data.get('order_id'), amount=api_data.get('amount'), payment_date=safe_parse_datetime(api_data.get('payment_date')), payment_type=api_data.get('payment_type'), payment_status=api_data.get('payment_status'), payment_gateway=api_data.get('payment_gateway'), transaction_id=api_data.get('transaction_id'), notes=api_data.get('notes'))
+    return OrderPayment(
+        id=api_data.get('id'),
+        order_id=api_data.get('order_id'),
+        amount=api_data.get('amount'),
+        note=api_data.get('note'),
+        invoice_id=api_data.get('invoice_id'),
+        payment_id=api_data.get('payment_id'),
+        pay_date=safe_parse_datetime(api_data.get('pay_date')),
+        pay_status=api_data.get('pay_status'),
+        last_updated=safe_parse_datetime(api_data.get('last_updated')),
+        skip_commission=api_data.get('skip_commission', False),
+        refund_invoice_payment_id=api_data.get('refund_invoice_payment_id', 0),
+        created_at=safe_parse_datetime(api_data.get('created_at')),
+        modified_at=safe_parse_datetime(api_data.get('modified_at'))
+    )
 
 
 def transform_order_transaction(api_data: Dict[str, Any]) -> OrderTransaction:
-    """Transform API order transaction data into an OrderTransaction model instance."""
-    if not isinstance(api_data, dict):
-        api_data = api_data.__dict__
-
-    return OrderTransaction(id=api_data.get('id'), order_id=api_data.get('order_id'), transaction_date=safe_parse_datetime(api_data.get('transaction_date')), transaction_type=api_data.get('transaction_type'), transaction_status=api_data.get('transaction_status'), amount=api_data.get('amount'), payment_gateway=api_data.get('payment_gateway'), gateway_transaction_id=api_data.get('gateway_transaction_id'), gateway_response_code=api_data.get('gateway_response_code'), gateway_response_message=api_data.get('gateway_response_message'), payment_type=api_data.get('payment_type'), card_type=api_data.get('card_type'), card_last_four=api_data.get('card_last_four'), card_expiration_month=api_data.get('card_expiration_month'), card_expiration_year=api_data.get('card_expiration_year'), notes=api_data.get('notes'))
+    """Transform API order transaction data into OrderTransaction model instance."""
+    return OrderTransaction(
+        id=api_data.get('id'),
+        order_id=api_data.get('order_id'),
+        test=api_data.get('test', False),
+        amount=api_data.get('amount'),
+        currency=api_data.get('currency'),
+        gateway=api_data.get('gateway'),
+        payment_date=safe_parse_datetime(api_data.get('paymentDate')),
+        type=api_data.get('type'),
+        status=api_data.get('status'),
+        errors=api_data.get('errors'),
+        contact_id=api_data.get('contact_id'),
+        transaction_date=safe_parse_datetime(api_data.get('transaction_date')),
+        gateway_account_name=api_data.get('gateway_account_name'),
+        order_ids=api_data.get('order_ids'),
+        collection_method=api_data.get('collection_method'),
+        payment_id=api_data.get('payment_id'),
+        created_at=datetime.now(timezone.utc),
+        modified_at=datetime.now(timezone.utc)
+    )
 
 
 def transform_note(api_data: Dict[str, Any]) -> Note:

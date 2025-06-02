@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import (BigInteger, Boolean, Column, Date, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Table, Text, UniqueConstraint, func)
+from sqlalchemy import (BigInteger, Boolean, Column, Date, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Table, Text, UniqueConstraint, Numeric, func)
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -276,7 +276,7 @@ class AffiliateCommission(Base):
 
     id = Column(Integer, primary_key=True)
     affiliate_id = Column(Integer, ForeignKey('affiliates.id'))
-    amount_earned = Column(Float)
+    amount_earned = Column(Numeric(10, 2))
     contact_id = Column(Integer, ForeignKey('contacts.id'))
     contact_first_name = Column(String(100))
     contact_last_name = Column(String(100))
@@ -294,7 +294,7 @@ class AffiliateCommission(Base):
     contact = relationship("Contact", foreign_keys=[contact_id])
 
     def __repr__(self):
-        return f"<AffiliateCommission(id={self.id}, affiliate_id={self.affiliate_id}, amount_earned={self.amount_earned}, date_earned='{self.date_earned}')>"
+        return f"<AffiliateCommission(id={self.id}, affiliate_id={self.affiliate_id}, amount_earned={self.amount_earned})>"
 
 
 class AffiliateProgram(Base):
@@ -339,9 +339,9 @@ class AffiliateSummary(Base):
 
     id = Column(Integer, primary_key=True)
     affiliate_id = Column(Integer, ForeignKey('affiliates.id'))
-    amount_earned = Column(Float)
-    balance = Column(Float)
-    clawbacks = Column(Float)
+    amount_earned = Column(Numeric(10, 2))
+    balance = Column(Numeric(10, 2))
+    clawbacks = Column(Numeric(10, 2))
     created_at = Column(DateTime, default=utc_now)
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
@@ -357,7 +357,7 @@ class AffiliateClawback(Base):
 
     id = Column(Integer, primary_key=True)
     affiliate_id = Column(Integer, ForeignKey('affiliates.id'))
-    amount = Column(Float)
+    amount = Column(Numeric(10, 2))
     contact_id = Column(Integer, ForeignKey('contacts.id'))
     date_earned = Column(DateTime)
     description = Column(Text)
@@ -376,7 +376,7 @@ class AffiliateClawback(Base):
     contact = relationship("Contact", foreign_keys=[contact_id])
 
     def __repr__(self):
-        return f"<AffiliateClawback(id={self.id}, affiliate_id={self.affiliate_id}, amount={self.amount}, date_earned='{self.date_earned}')>"
+        return f"<AffiliateClawback(id={self.id}, affiliate_id={self.affiliate_id}, amount={self.amount})>"
 
 
 class AffiliatePayment(Base):
@@ -384,7 +384,7 @@ class AffiliatePayment(Base):
 
     id = Column(Integer, primary_key=True)
     affiliate_id = Column(Integer, ForeignKey('affiliates.id'))
-    amount = Column(Float)
+    amount = Column(Numeric(10, 2))
     date = Column(DateTime)
     notes = Column(Text)
     type = Column(String(50))
@@ -394,7 +394,7 @@ class AffiliatePayment(Base):
     affiliate = relationship("Affiliate", back_populates="payments", foreign_keys=[affiliate_id])
 
     def __repr__(self):
-        return f"<AffiliatePayment(id={self.id}, affiliate_id={self.affiliate_id}, amount={self.amount}, date='{self.date}', type='{self.type}')>"
+        return f"<AffiliatePayment(id={self.id}, affiliate_id={self.affiliate_id}, amount={self.amount})>"
 
 
 class Contact(Base):
@@ -665,11 +665,11 @@ class OrderItem(Base):
     type = Column(String(50))
     notes = Column(Text)
     quantity = Column(Integer)
-    cost = Column(Float)
-    price = Column(Float)
-    discount = Column(Float)
+    cost = Column(Numeric(10, 2))
+    price = Column(Numeric(10, 2))
+    discount = Column(Numeric(10, 2))
     special_id = Column(Integer)
-    special_amount = Column(Float)
+    special_amount = Column(Numeric(10, 2))
     special_pct_or_amt = Column(Integer)
     product_id = Column(Integer, ForeignKey('products.id'))
     subscription_plan_id = Column(Integer, ForeignKey('subscription_plans.id'))
@@ -682,7 +682,7 @@ class OrderItem(Base):
     subscription_plan = relationship("SubscriptionPlan", back_populates="order_items", foreign_keys=[subscription_plan_id])
 
     def __repr__(self):
-        return f"<OrderItem(id={self.id}, order_id={self.order_id}, name='{self.name}', quantity={self.quantity}, price={self.price})>"
+        return f"<OrderItem(id={self.id}, order_id={self.order_id}, name='{self.name}', price={self.price})>"
 
 
 class OrderPayment(Base):
@@ -690,13 +690,15 @@ class OrderPayment(Base):
 
     id = Column(Integer, primary_key=True)
     order_id = Column(Integer, ForeignKey('orders.id', ondelete='CASCADE'))
-    amount = Column(Float, nullable=False)
-    payment_date = Column(DateTime, nullable=False)
-    payment_type = Column(String(50))
-    payment_status = Column(String(50))
-    payment_gateway = Column(String(50))
-    transaction_id = Column(String(100))
-    notes = Column(Text)
+    amount = Column(Numeric(10, 2), nullable=False)
+    note = Column(Text)
+    invoice_id = Column(Integer)
+    payment_id = Column(Integer)
+    pay_date = Column(DateTime, nullable=False)
+    pay_status = Column(String(50))
+    last_updated = Column(DateTime)
+    skip_commission = Column(Boolean, default=False)
+    refund_invoice_payment_id = Column(Integer, default=0)
     created_at = Column(DateTime, default=utc_now)
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
@@ -704,7 +706,7 @@ class OrderPayment(Base):
     order = relationship("Order", back_populates="payments", foreign_keys=[order_id])
 
     def __repr__(self):
-        return f"<OrderPayment(id={self.id}, order_id={self.order_id}, amount={self.amount}, payment_date='{self.payment_date}', payment_type='{self.payment_type}')>"
+        return f"<OrderPayment(id={self.id}, order_id={self.order_id}, amount={self.amount}, pay_date='{self.pay_date}')>"
 
 
 class OrderTransaction(Base):
@@ -712,28 +714,29 @@ class OrderTransaction(Base):
 
     id = Column(Integer, primary_key=True)
     order_id = Column(Integer, ForeignKey('orders.id', ondelete='CASCADE'))
-    transaction_date = Column(DateTime, nullable=False)
-    transaction_type = Column(String(50))
-    transaction_status = Column(String(50))
-    amount = Column(Float, nullable=False)
-    payment_gateway = Column(String(50))
-    gateway_transaction_id = Column(String(100))
-    gateway_response_code = Column(String(50))
-    gateway_response_message = Column(Text)
-    payment_type = Column(String(50))
-    card_type = Column(String(50))
-    card_last_four = Column(String(4))
-    card_expiration_month = Column(Integer)
-    card_expiration_year = Column(Integer)
-    notes = Column(Text)
+    test = Column(Boolean, default=False)
+    amount = Column(Numeric(10, 2), nullable=False)
+    currency = Column(String(10))
+    gateway = Column(String(50))
+    payment_date = Column(DateTime)
+    type = Column(String(50))
+    status = Column(String(100))
+    errors = Column(Text)
+    contact_id = Column(Integer, ForeignKey('contacts.id'))
+    transaction_date = Column(DateTime)
+    gateway_account_name = Column(String(100))
+    order_ids = Column(String(100))
+    collection_method = Column(String(50))
+    payment_id = Column(Integer)
     created_at = Column(DateTime, default=utc_now)
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
     order = relationship("Order", back_populates="transactions", foreign_keys=[order_id])
+    contact = relationship("Contact", foreign_keys=[contact_id])
 
     def __repr__(self):
-        return f"<OrderTransaction(id={self.id}, order_id={self.order_id}, amount={self.amount}, transaction_date='{self.transaction_date}', transaction_type='{self.transaction_type}')>"
+        return f"<OrderTransaction(id={self.id}, order_id={self.order_id}, amount={self.amount}, type='{self.type}', status='{self.status}')>"
 
 
 class Opportunity(Base):
@@ -773,7 +776,7 @@ class Product(Base):
     product_name = Column(String(200))
     sub_category_id = Column(Integer, default=0)
     product_desc = Column(Text)
-    product_price = Column(Float)
+    product_price = Column(Numeric(10, 2))
     product_short_desc = Column(Text)
     subscription_only = Column(Boolean, default=False)
     status = Column(Integer, default=1)
@@ -797,7 +800,7 @@ class ProductOption(Base):
     id = Column(Integer, primary_key=True)
     product_id = Column(Integer, ForeignKey('products.id', ondelete='CASCADE'))
     name = Column(String(200), nullable=False)
-    price = Column(Float)
+    price = Column(Numeric(10, 2))
     sku = Column(String(100))
     description = Column(Text)
     created_at = Column(DateTime, default=utc_now)
@@ -839,7 +842,7 @@ class SubscriptionPlan(Base):
     name = Column(String(200))
     description = Column(Text)
     frequency = Column(String(50))
-    subscription_plan_price = Column(Float)
+    subscription_plan_price = Column(Numeric(10, 2))
     created_at = Column(DateTime, default=utc_now)
     modified_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
@@ -850,7 +853,7 @@ class SubscriptionPlan(Base):
     order_items = relationship("OrderItem", back_populates="subscription_plan", foreign_keys="OrderItem.subscription_plan_id")
 
     def __repr__(self):
-        return f"<SubscriptionPlan(id={self.id}, product_id={self.product_id}, name='{self.name}', frequency='{self.frequency}')>"
+        return f"<SubscriptionPlan(id={self.id}, name='{self.name}', price={self.subscription_plan_price})>"
 
 
 class PaymentGateway(Base):
@@ -906,7 +909,7 @@ class Order(Base):
     title = Column(String(200))
     status = Column(Enum(OrderStatus))
     recurring = Column(Boolean)
-    total = Column(Float)
+    total = Column(Numeric(10, 2))
     notes = Column(Text)
     terms = Column(Text)
     order_type = Column(String(50))
@@ -916,9 +919,9 @@ class Order(Base):
     order_date = Column(DateTime(timezone=True))
     lead_affiliate_id = Column(Integer, ForeignKey('affiliates.id'))
     sales_affiliate_id = Column(Integer, ForeignKey('affiliates.id'))
-    total_paid = Column(Float)
-    total_due = Column(Float)
-    refund_total = Column(Float)
+    total_paid = Column(Numeric(10, 2))
+    total_due = Column(Numeric(10, 2))
+    refund_total = Column(Numeric(10, 2))
     allow_payment = Column(Boolean)
     allow_paypal = Column(Boolean)
     invoice_number = Column(Integer)
@@ -945,7 +948,7 @@ class Order(Base):
     sales_affiliate = relationship("Affiliate", foreign_keys=[sales_affiliate_id], back_populates="sales_orders")
 
     def __repr__(self):
-        return f"<Order(id={self.id}, title='{self.title}', status='{self.status}', total={self.total})>"
+        return f"<Order(id={self.id}, title='{self.title}', total={self.total}, status='{self.status}')>"
 
 
 class PaymentPlan(Base):
@@ -956,8 +959,8 @@ class PaymentPlan(Base):
     auto_charge = Column(Boolean)
     credit_card_id = Column(Integer)
     days_between_payments = Column(Integer)
-    initial_payment_amount = Column(Float)
-    initial_payment_percent = Column(Float)
+    initial_payment_amount = Column(Numeric(10, 2))
+    initial_payment_percent = Column(Numeric(5, 2))
     initial_payment_date = Column(Date)
     number_of_payments = Column(Integer)
     merchant_account_id = Column(Integer)
@@ -973,7 +976,7 @@ class PaymentPlan(Base):
     order = relationship("Order", back_populates="payment_plan", foreign_keys=[order_id])
 
     def __repr__(self):
-        return f"<PaymentPlan(id={self.id}, order_id={self.order_id}, number_of_payments={self.number_of_payments})>"
+        return f"<PaymentPlan(id={self.id}, order_id={self.order_id}, initial_payment_amount={self.initial_payment_amount})>"
 
 
 class FaxNumber(Base):
