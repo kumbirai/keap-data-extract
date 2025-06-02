@@ -1,0 +1,1 @@
+PGPASSWORD=secret psql -h localhost -U postgres -d keap_db -c "DROP TABLE public.orders CASCADE; DROP TABLE public.order_payments CASCADE; DROP TABLE public.order_transactions CASCADE; DROP TABLE public.affiliates CASCADE;"
