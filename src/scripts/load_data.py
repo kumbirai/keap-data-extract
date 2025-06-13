@@ -10,10 +10,13 @@ from sqlalchemy.orm import Session
 
 from src.api.keap_client import KeapClient
 from src.database.config import SessionLocal
-from src.models.models import (Affiliate, Campaign, Contact, CustomField, Note, Opportunity, Order, Product, Subscription, Tag, TagCategory, Task)
+from src.models.models import (AccountProfile, Affiliate, AffiliateClawback, AffiliateCommission, AffiliatePayment, AffiliateProgram, AffiliateRedirect, AffiliateRedirectProgram,
+    AffiliateSummary, BusinessGoal, Campaign, CampaignSequence, Contact, ContactAddress, ContactCustomFieldValue, CustomField, EmailAddress, FaxNumber, Note, Opportunity, Order,
+    OrderItem, OrderPayment, OrderTransaction, PaymentGateway, PaymentPlan, PhoneNumber, Product, ProductOption, ShippingInformation, Subscription, Tag, TagCategory, Task)
 from src.utils.error_logger import ErrorLogger
 from src.utils.logging_config import setup_logging
 from src.transformers.transformers import (transform_credit_card, transform_tag)
+from src.utils.global_logger import get_error_logger
 
 # Create logs and checkpoints directories if they don't exist
 os.makedirs('logs', exist_ok=True)
@@ -120,10 +123,13 @@ def audit_load_operation(func):
 class CheckpointManager:
     def __init__(self, checkpoint_file: str = 'checkpoints/load_progress.json'):
         self.checkpoint_file = checkpoint_file
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(self.checkpoint_file), exist_ok=True)
         self.checkpoints = self._load_checkpoints()
         self.audit_logger = AuditLogger()
 
     def _load_checkpoints(self) -> Dict:
+        """Load checkpoints from file if it exists, otherwise return empty dict."""
         if os.path.exists(self.checkpoint_file):
             try:
                 with open(self.checkpoint_file, 'r') as f:
@@ -217,7 +223,7 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
     total_records = 0
     success_count = 0
     failed_count = 0
-    error_logger = ErrorLogger()
+    error_logger = get_error_logger()
 
     try:
         # Get query parameters based on update flag
@@ -285,17 +291,88 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
                         # Clear existing relationships
                         contact.credit_cards = []
                         contact.tags = []
+                        contact.email_addresses = []
+                        contact.phone_numbers = []
+                        contact.addresses = []
+                        contact.fax_numbers = []
+                        contact.custom_field_values = []
                         
                         # Add new relationships
                         contact.credit_cards = credit_cards
                         contact.tags = existing_tags
+                        
+                        # Handle email addresses
+                        if hasattr(full_contact, 'email_addresses'):
+                            for email in full_contact.email_addresses:
+                                # Try to find existing email address
+                                existing_email = db.query(EmailAddress).filter(EmailAddress.id == email.id).first()
+                                if existing_email:
+                                    # Update existing email
+                                    for key, value in email.__dict__.items():
+                                        if not key.startswith('_'):
+                                            setattr(existing_email, key, value)
+                                    # Use merge instead of append
+                                    db.merge(existing_email)
+                                    contact.email_addresses.append(existing_email)
+                                else:
+                                    # For new emails, use merge to handle ID conflicts
+                                    merged_email = db.merge(email)
+                                    contact.email_addresses.append(merged_email)
+                        
+                        # Handle phone numbers
+                        if hasattr(full_contact, 'phone_numbers'):
+                            for phone in full_contact.phone_numbers:
+                                existing_phone = db.query(PhoneNumber).filter(PhoneNumber.id == phone.id).first()
+                                if existing_phone:
+                                    for key, value in phone.__dict__.items():
+                                        if not key.startswith('_'):
+                                            setattr(existing_phone, key, value)
+                                    contact.phone_numbers.append(existing_phone)
+                                else:
+                                    contact.phone_numbers.append(phone)
+                        
+                        # Handle addresses
+                        if hasattr(full_contact, 'addresses'):
+                            for address in full_contact.addresses:
+                                existing_address = db.query(ContactAddress).filter(ContactAddress.id == address.id).first()
+                                if existing_address:
+                                    for key, value in address.__dict__.items():
+                                        if not key.startswith('_'):
+                                            setattr(existing_address, key, value)
+                                    contact.addresses.append(existing_address)
+                                else:
+                                    contact.addresses.append(address)
+                        
+                        # Handle fax numbers
+                        if hasattr(full_contact, 'fax_numbers'):
+                            for fax in full_contact.fax_numbers:
+                                existing_fax = db.query(FaxNumber).filter(FaxNumber.id == fax.id).first()
+                                if existing_fax:
+                                    for key, value in fax.__dict__.items():
+                                        if not key.startswith('_'):
+                                            setattr(existing_fax, key, value)
+                                    contact.fax_numbers.append(existing_fax)
+                                else:
+                                    contact.fax_numbers.append(fax)
+                        
+                        # Handle custom field values
+                        if hasattr(full_contact, 'custom_field_values'):
+                            for cfv in full_contact.custom_field_values:
+                                existing_cfv = db.query(ContactCustomFieldValue).filter(ContactCustomFieldValue.id == cfv.id).first()
+                                if existing_cfv:
+                                    for key, value in cfv.__dict__.items():
+                                        if not key.startswith('_'):
+                                            setattr(existing_cfv, key, value)
+                                    contact.custom_field_values.append(existing_cfv)
+                                else:
+                                    contact.custom_field_values.append(cfv)
                     else:
                         # For new contacts, set relationships before adding
                         full_contact.credit_cards = credit_cards
                         full_contact.tags = existing_tags
                         
                         # Add the new contact to the session
-                        db.add(full_contact)
+                        db.merge(full_contact)
 
                     # Flush to ensure all changes are persisted
                     db.flush()
@@ -308,7 +385,13 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
                 except Exception as e:
                     db.rollback()
                     failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e)
+                    log_error(error_logger, entity_type, item.id, e, {
+                        'id': item.id,
+                        'given_name': getattr(item, 'given_name', None),
+                        'family_name': getattr(item, 'family_name', None),
+                        'date_created': getattr(item, 'date_created', None),
+                        'last_updated': getattr(item, 'last_updated', None)
+                    })
                     logger.error(f"Error processing contact ID {item.id}: {e}")
                     continue
 
@@ -347,7 +430,7 @@ def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: Check
     total_records = 0
     success_count = 0
     failed_count = 0
-    error_logger = ErrorLogger()
+    error_logger = get_error_logger()
 
     try:
         # Get query parameters based on update flag
@@ -366,6 +449,7 @@ def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: Check
             items, pagination = client.get_tags(limit=batch_size, offset=offset, **query_params)
             if not items:
                 logger.info("No more tags to load")
+                checkpoint_manager.save_checkpoint(entity_type, offset, completed=True)
                 break
 
             total_records += len(items)
@@ -401,7 +485,6 @@ def load_tags(client: KeapClient, db_session: Session, checkpoint_manager: Check
                 except Exception as e:
                     failed_count += 1
                     log_error(error_logger, entity_type, tag_id, e, {'name': tag_name})
-                    # Roll back the session for this item
                     db_session.rollback()
                     continue
 
@@ -549,7 +632,7 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
     total_records = 0
     success_count = 0
     failed_count = 0
-    error_logger = ErrorLogger()
+    error_logger = get_error_logger()
 
     try:
         # Get query parameters based on update flag
@@ -628,7 +711,7 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
                 except Exception as e:
                     db_session.rollback()
                     failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e)
+                    log_error(error_logger, entity_type, item.id, e, {'title': getattr(item, 'title', None)})
                     logger.error(f"Error processing opportunity ID {item.id}: {e}")
                     continue
 
@@ -667,7 +750,7 @@ def load_products(client: KeapClient, db_session: Session, checkpoint_manager: C
     total_records = 0
     success_count = 0
     failed_count = 0
-    error_logger = ErrorLogger()
+    error_logger = get_error_logger()
 
     try:
         # Get query parameters based on update flag
@@ -717,7 +800,7 @@ def load_products(client: KeapClient, db_session: Session, checkpoint_manager: C
                 except Exception as e:
                     db_session.rollback()
                     failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e)
+                    log_error(error_logger, entity_type, item.id, e, {'product_name': getattr(item, 'product_name', None), 'sku': getattr(item, 'sku', None)})
                     logger.error(f"Error processing product ID {item.id}: {e}")
                     continue
 
@@ -758,135 +841,117 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
     failed_count = 0
     error_logger = ErrorLogger()
 
-    try:
-        # Get query parameters based on update flag
-        query_params = checkpoint_manager.get_query_params(entity_type, update)
+    # Get query parameters
+    query_params = checkpoint_manager.get_query_params(entity_type, update)
+    offset = checkpoint_manager.get_checkpoint(entity_type)
 
-        # If update is True and we have a last_loaded timestamp, we don't need to use offset
-        if update and 'since' in query_params:
-            offset = 0
-        else:
-            offset = checkpoint_manager.get_checkpoint(entity_type)
+    logger.info(f"Starting to load orders with offset {offset}")
 
-        logger.info(f"Starting orders load with params: {query_params}")
+    while True:
+        # Make API call with limit and offset
+        items, pagination = client.get_orders(limit=batch_size, offset=offset, **query_params)
+        logger.debug(f"Retrieved {len(items)} orders from API")
 
-        while True:
-            # Make API call with limit and offset
-            items, pagination = client.get_orders(limit=batch_size, offset=offset, **query_params)
-            logger.debug(f"Retrieved {len(items)} orders from API")
+        if not items:
+            logger.info("No more orders to load")
+            checkpoint_manager.save_checkpoint(entity_type, offset, completed=True)
+            break
 
-            if not items:
-                logger.info("No more orders to load")
-                checkpoint_manager.save_checkpoint(entity_type, offset, completed=True)
-                break
+        # Process items
+        for item in items:
+            total_records += 1
+            try:
+                logger.info(f"Processing order ID: {item.id}, Title: {item.title}")
 
-            # Process items
-            for item in items:
-                total_records += 1
+                # Get full order details
                 try:
-                    logger.info(f"Processing order ID: {item.id}, Title: {item.title}")
-
-                    # Get full order details
                     full_order = client.get_order(item.id)
                     logger.info(f"Retrieved full order details for ID: {item.id}")
+                except Exception as e:
+                    logger.error(f"Error getting order details for ID {item.id}: {str(e)}")
+                    raise
 
-                    # Get order payments
+                # Get order payments
+                try:
                     payments = client.get_order_payments(item.id)
                     logger.info(f"Retrieved {len(payments)} payments for order ID: {item.id}")
-
-                    # Get order transactions
-                    try:
-                        transactions = client.get_order_transactions(item.id)
-                        logger.info(f"Retrieved {len(transactions)} transactions for order ID: {item.id}")
-                    except Exception as e:
-                        logger.warning(f"Error getting transactions for order {item.id}: {str(e)}")
-                        transactions = []
-
-                    # First, check if order exists
-                    existing_order = db_session.query(Order).filter(Order.id == item.id).first()
-
-                    if existing_order:
-                        # Create update dictionary for order attributes, excluding relationships
-                        update_dict = {}
-                        for key, value in full_order.__dict__.items():
-                            if not key.startswith('_') and not isinstance(value, (list, dict)):
-                                # Set affiliate IDs to None if they are 0
-                                if key in ['lead_affiliate_id', 'sales_affiliate_id'] and value == 0:
-                                    value = None
-                                update_dict[key] = value
-
-                        # Update the order attributes
-                        db_session.query(Order).filter(Order.id == item.id).update(update_dict)
-                        
-                        # Get the updated order
-                        order = db_session.query(Order).filter(Order.id == item.id).first()
-                        
-                        # Clear existing relationships
-                        order.payments = []
-                        order.transactions = []
-                        order.contacts = []
-                        order.custom_field_values = []
-                        
-                        # Add new relationships
-                        order.payments = payments
-                        order.transactions = transactions
-                        order.contacts = full_order.contacts
-                        order.custom_field_values = full_order.custom_field_values
-                    else:
-                        # For new orders, set relationships before adding
-                        # Set affiliate IDs to None if they are 0
-                        if full_order.lead_affiliate_id == 0:
-                            full_order.lead_affiliate_id = None
-                        if full_order.sales_affiliate_id == 0:
-                            full_order.sales_affiliate_id = None
-                            
-                        full_order.payments = payments
-                        full_order.transactions = transactions
-                        full_order.contacts = full_order.contacts
-                        full_order.custom_field_values = full_order.custom_field_values
-                        
-                        # Add the new order to the session
-                        db_session.add(full_order)
-
-                    # Flush to ensure all changes are persisted
-                    db_session.flush()
-                    
-                    # Commit the transaction
-                    db_session.commit()
-                    success_count += 1
-                    logger.debug(f"Successfully processed order ID: {item.id}")
-
                 except Exception as e:
-                    db_session.rollback()
-                    failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e)
-                    logger.error(f"Error processing order ID {item.id}: {e}")
-                    continue
+                    logger.error(f"Error getting payments for order {item.id}: {str(e)}")
+                    payments = []
 
-            # Update checkpoint with new offset
-            new_offset = offset + len(items)
-            checkpoint_manager.save_checkpoint(entity_type, new_offset)
+                # Get order transactions
+                try:
+                    transactions = client.get_order_transactions(item.id)
+                    logger.info(f"Retrieved {len(transactions)} transactions for order ID: {item.id}")
+                except Exception as e:
+                    logger.error(f"Error getting transactions for order {item.id}: {str(e)}")
+                    transactions = []
 
-            # Check if we've reached the end
-            if not pagination.get('next'):
-                logger.info("Reached end of orders")
-                checkpoint_manager.save_checkpoint(entity_type, new_offset, completed=True)
-                break
+                # First, check if order exists
+                existing_order = db_session.query(Order).filter(Order.id == item.id).first()
 
-            # Parse next URL to get the offset for the next batch
-            next_offset = client._parse_next_url(pagination.get('next'))
-            if next_offset is None:
-                logger.info("No more pages to load")
-                checkpoint_manager.save_checkpoint(entity_type, new_offset, completed=True)
-                break
+                if existing_order:
+                    # Update existing order attributes
+                    for key, value in full_order.__dict__.items():
+                        if not key.startswith('_') and not isinstance(value, (list, dict)):
+                            # Set affiliate IDs to None if they are 0
+                            if key in ['lead_affiliate_id', 'sales_affiliate_id'] and value == 0:
+                                value = None
+                            setattr(existing_order, key, value)
 
-            offset = next_offset
+                    # Clear existing relationships
+                    existing_order.payments = []
+                    existing_order.transactions = []
+                    existing_order.contacts = []
+                    existing_order.custom_field_values = []
 
-        logger.info(f"Completed loading orders. Total: {total_records}, Success: {success_count}, Failed: {failed_count}")
+                    # Add new relationships
+                    existing_order.payments = payments
+                    existing_order.transactions = transactions
+                    existing_order.contacts = full_order.contacts
+                    existing_order.custom_field_values = full_order.custom_field_values
 
-    except Exception as e:
-        logger.error(f"Error in load_orders: {str(e)}")
-        raise
+                    # Merge the updated order
+                    db_session.merge(existing_order)
+                else:
+                    # For new orders, set relationships before adding
+                    # Set affiliate IDs to None if they are 0
+                    if full_order.lead_affiliate_id == 0:
+                        full_order.lead_affiliate_id = None
+                    if full_order.sales_affiliate_id == 0:
+                        full_order.sales_affiliate_id = None
+
+                    full_order.payments = payments
+                    full_order.transactions = transactions
+                    full_order.contacts = full_order.contacts
+                    full_order.custom_field_values = full_order.custom_field_values
+
+                    # Use merge instead of add to handle potential duplicate keys
+                    db_session.merge(full_order)
+
+                # Flush to ensure all changes are persisted
+                db_session.flush()
+
+                # Commit the transaction
+                db_session.commit()
+                success_count += 1
+                logger.debug(f"Successfully processed order ID: {item.id}")
+
+            except Exception as e:
+                db_session.rollback()
+                failed_count += 1
+                log_error(error_logger, entity_type, item.id, e, {
+                    'id': item.id,
+                    'title': getattr(item, 'title', None),
+                    'status': getattr(item, 'status', None),
+                    'order_date': getattr(item, 'order_date', None)
+                })
+                logger.error(f"Error processing order ID {item.id}: {e}")
+                continue
+
+        # Update checkpoint with new offset
+        new_offset = offset + len(items)
+        checkpoint_manager.save_checkpoint(entity_type, new_offset)
 
     return total_records, success_count, failed_count
 
@@ -898,7 +963,7 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
     total_records = 0
     success_count = 0
     failed_count = 0
-    error_logger = ErrorLogger()
+    error_logger = get_error_logger()
 
     try:
         # Get query parameters based on update flag
@@ -929,43 +994,46 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
                     logger.info(f"Processing task ID: {item.id}, Title: {item.title}")
 
                     # Get full task details
-                    full_task = client.get_task(item.id)
-                    logger.info(f"Retrieved full task details for ID: {item.id}")
+                    try:
+                        full_task = client.get_task(item.id)
+                        logger.info(f"Retrieved full task details for ID: {item.id}")
+                    except Exception as e:
+                        logger.error(f"Error getting task details for ID {item.id}: {str(e)}")
+                        raise
+
+                    # Get task contacts
+                    try:
+                        contacts = client.get_task_contacts(item.id)
+                        logger.info(f"Retrieved {len(contacts)} contacts for task ID: {item.id}")
+                    except Exception as e:
+                        logger.error(f"Error getting contacts for task {item.id}: {str(e)}")
+                        contacts = []
 
                     # First, check if task exists
                     existing_task = db_session.query(Task).filter(Task.id == item.id).first()
 
                     if existing_task:
-                        # Create update dictionary for task attributes, excluding relationships
-                        update_dict = {}
+                        # Update existing task attributes
                         for key, value in full_task.__dict__.items():
                             if not key.startswith('_') and not isinstance(value, (list, dict)):
-                                update_dict[key] = value
+                                setattr(existing_task, key, value)
 
-                        # Update the task attributes
-                        db_session.query(Task).filter(Task.id == item.id).update(update_dict)
-                        
-                        # Get the updated task
-                        task = db_session.query(Task).filter(Task.id == item.id).first()
-                        
                         # Clear existing relationships
-                        task.contacts = []
-                        task.custom_field_values = []
-                        
+                        existing_task.contacts = []
+
                         # Add new relationships
-                        task.contacts = full_task.contacts
-                        task.custom_field_values = full_task.custom_field_values
+                        existing_task.contacts = contacts
+
+                        # Merge the updated task
+                        db_session.merge(existing_task)
                     else:
                         # For new tasks, set relationships before adding
-                        full_task.contacts = full_task.contacts
-                        full_task.custom_field_values = full_task.custom_field_values
-                        
-                        # Add the new task to the session
+                        full_task.contacts = contacts
                         db_session.add(full_task)
 
                     # Flush to ensure all changes are persisted
                     db_session.flush()
-                    
+
                     # Commit the transaction
                     db_session.commit()
                     success_count += 1
@@ -974,30 +1042,17 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
                 except Exception as e:
                     db_session.rollback()
                     failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e)
-                    logger.error(f"Error processing task ID {item.id}: {e}")
+                    log_error(error_logger, entity_type, item.id, e, {
+                        'id': item.id,
+                        'title': getattr(item, 'title', None),
+                        'status': getattr(item, 'status', None),
+                        'due_date': getattr(item, 'due_date', None)
+                    })
                     continue
 
             # Update checkpoint with new offset
             new_offset = offset + len(items)
             checkpoint_manager.save_checkpoint(entity_type, new_offset)
-
-            # Check if we've reached the end
-            if not pagination.get('next'):
-                logger.info("Reached end of tasks")
-                checkpoint_manager.save_checkpoint(entity_type, new_offset, completed=True)
-                break
-
-            # Parse next URL to get the offset for the next batch
-            next_offset = client._parse_next_url(pagination.get('next'))
-            if next_offset is None:
-                logger.info("No more pages to load")
-                checkpoint_manager.save_checkpoint(entity_type, new_offset, completed=True)
-                break
-
-            offset = next_offset
-
-        logger.info(f"Completed loading tasks. Total: {total_records}, Success: {success_count}, Failed: {failed_count}")
 
     except Exception as e:
         logger.error(f"Error in load_tasks: {str(e)}")
@@ -1008,22 +1063,12 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
 
 @audit_load_operation
 def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
-    """Load all notes with their related data.
-    
-    Args:
-        client: KeapClient instance
-        db_session: Database session
-        checkpoint_manager: CheckpointManager instance
-        batch_size: Number of notes to load per batch
-        update: Whether this is an update operation
-        
-    Returns:
-        Tuple of (total_records, success_count, failed_count)
-    """
+    """Load notes from Keap API into database."""
     entity_type = 'notes'
     total_records = 0
     success_count = 0
     failed_count = 0
+    error_logger = get_error_logger()
 
     try:
         # Get query parameters based on update flag
@@ -1074,7 +1119,7 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
 
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e)
+                    log_error(error_logger, entity_type, item.id, e, {'content': getattr(item, 'content', None)})
                     db_session.rollback()
                     continue
 
@@ -1096,22 +1141,12 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
 
 @audit_load_operation
 def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
-    """Load all campaigns with their related data.
-    
-    Args:
-        client: KeapClient instance
-        db_session: Database session
-        checkpoint_manager: CheckpointManager instance
-        batch_size: Number of campaigns to load per batch
-        update: Whether this is an update operation
-        
-    Returns:
-        Tuple of (total_records, success_count, failed_count)
-    """
+    """Load campaigns from Keap API into database."""
     entity_type = 'campaigns'
     total_records = 0
     success_count = 0
     failed_count = 0
+    error_logger = get_error_logger()
 
     try:
         # Get query parameters based on update flag
@@ -1120,72 +1155,79 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
         logger.info(f"Starting campaigns load with params: {query_params}")
 
         # Get all campaigns in a single call
-        items, _ = client.get_campaigns(**query_params)
+        try:
+            items, _ = client.get_campaigns(**query_params)
+            logger.info(f"Retrieved {len(items) if items else 0} campaigns from API")
+        except Exception as e:
+            logger.error(f"Error retrieving campaigns list: {str(e)}")
+            raise
 
         if not items:
             # Mark as completed when no items
             checkpoint_manager.save_checkpoint(entity_type, 0, completed=True)
             return total_records, success_count, failed_count
 
-        try:
-            # Process items
-            for item in items:
-                total_records += 1
-                try:
-                    logger.info(f"Processing campaign ID: {item.id}")
+        # Process items
+        for item in items:
+            total_records += 1
+            try:
+                logger.info(f"Processing campaign ID: {item.id}")
 
-                    # Get full campaign details
+                # Get full campaign details
+                try:
                     full_campaign = client.get_campaign(item.id)
                     logger.info(f"Retrieved full campaign details for ID: {item.id}")
+                except Exception as e:
+                    logger.error(f"Error getting campaign details for ID {item.id}: {str(e)}")
+                    raise
 
-                    # Get campaign sequences
+                # Get campaign sequences
+                try:
                     sequences = client.get_campaign_sequences(item.id)
                     logger.info(f"Retrieved {len(sequences)} sequences for campaign ID: {item.id}")
-
-                    # First, check if campaign exists
-                    existing_campaign = db_session.query(Campaign).filter(Campaign.id == item.id).first()
-
-                    if existing_campaign:
-                        # Update existing campaign's attributes
-                        for key, value in full_campaign.__dict__.items():
-                            if not key.startswith('_'):
-                                setattr(existing_campaign, key, value)
-
-                        # Clear existing relationships
-                        existing_campaign.sequences = []
-
-                        # Add new relationships
-                        existing_campaign.sequences = sequences
-
-                        # After adding existing campaign
-                        db_session.merge(existing_campaign)
-                        db_session.flush()  # Ensure campaign is persisted
-                        db_session.commit()
-                        success_count += 1
-
-                    else:
-                        # Add new campaign with relationships
-                        full_campaign.sequences = sequences
-
-                        db_session.merge(full_campaign)
-                        db_session.flush()  # Ensure campaign is persisted
-                        db_session.commit()
-                        success_count += 1
-
                 except Exception as e:
-                    failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e)
-                    db_session.rollback()
-                    continue
+                    logger.error(f"Error getting sequences for campaign {item.id}: {str(e)}")
+                    sequences = []  # Continue with empty sequences list
 
-            # Mark as completed since we processed all items
-            checkpoint_manager.save_checkpoint(entity_type, len(items), completed=True)
-            logger.info(f"Completed loading campaigns. Total: {total_records}, Success: {success_count}, Failed: {failed_count}")
+                # First, check if campaign exists
+                existing_campaign = db_session.query(Campaign).filter(Campaign.id == item.id).first()
 
-        except Exception as e:
-            log_error(error_logger, entity_type, 0, e)
-            db_session.rollback()
-            raise
+                if existing_campaign:
+                    # Update existing campaign attributes
+                    for key, value in full_campaign.__dict__.items():
+                        if not key.startswith('_') and not isinstance(value, (list, dict)):
+                            setattr(existing_campaign, key, value)
+
+                    # Clear existing relationships
+                    existing_campaign.sequences = []
+
+                    # Add new relationships
+                    existing_campaign.sequences = sequences
+
+                    # Merge the updated campaign
+                    db_session.merge(existing_campaign)
+                else:
+                    # For new campaigns, set relationships before adding
+                    full_campaign.sequences = sequences
+                    db_session.add(full_campaign)
+
+                # Flush to ensure all changes are persisted
+                db_session.flush()
+
+                # Commit the transaction
+                db_session.commit()
+                success_count += 1
+                logger.debug(f"Successfully processed campaign ID: {item.id}")
+
+            except Exception as e:
+                db_session.rollback()
+                failed_count += 1
+                log_error(error_logger, entity_type, item.id, e, {'name': getattr(item, 'name', None)})
+                continue
+
+        # Mark as completed since we processed all items
+        checkpoint_manager.save_checkpoint(entity_type, len(items), completed=True)
+        logger.info(f"Completed loading campaigns. Total: {total_records}, Success: {success_count}, Failed: {failed_count}")
 
     except Exception as e:
         logger.error(f"Error in load_campaigns: {str(e)}")
@@ -1196,22 +1238,12 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
 
 @audit_load_operation
 def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
-    """Load all subscriptions with their related data.
-    
-    Args:
-        client: KeapClient instance
-        db_session: Database session
-        checkpoint_manager: CheckpointManager instance
-        batch_size: Number of subscriptions to load per batch
-        update: Whether this is an update operation
-        
-    Returns:
-        Tuple of (total_records, success_count, failed_count)
-    """
+    """Load subscriptions from Keap API into database."""
     entity_type = 'subscriptions'
     total_records = 0
     success_count = 0
     failed_count = 0
+    error_logger = get_error_logger()
 
     try:
         # Get query parameters based on update flag
@@ -1262,7 +1294,7 @@ def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manag
 
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e)
+                    log_error(error_logger, entity_type, item.id, e, {'plan_name': getattr(item, 'plan_name', None)})
                     db_session.rollback()
                     continue
 
@@ -1371,7 +1403,7 @@ def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: Checkpo
 
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e)
+                    log_error(error_logger, entity_type, item.id, e, {'first_name': getattr(item, 'first_name', None), 'last_name': getattr(item, 'last_name', None)})
                     db.rollback()
                     continue
 
@@ -1398,7 +1430,7 @@ def load_affiliate_commissions(client: KeapClient, db: Session, checkpoint_manag
     total_records = 0
     success_count = 0
     failed_count = 0
-    error_logger = ErrorLogger()
+    error_logger = get_error_logger()
 
     # Get query parameters based on update flag
     query_params = checkpoint_manager.get_query_params(entity_type, update)
@@ -1467,12 +1499,12 @@ def load_affiliate_commissions(client: KeapClient, db: Session, checkpoint_manag
 
 @audit_load_operation
 def load_affiliate_programs(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
-    """Load all affiliate programs."""
+    """Load affiliate programs from Keap API into database."""
     entity_type = 'affiliate_programs'
     total_records = 0
     success_count = 0
     failed_count = 0
-    error_logger = ErrorLogger()
+    error_logger = get_error_logger()
 
     try:
         # Get query parameters based on update flag
@@ -1551,7 +1583,7 @@ def load_affiliate_redirects(client: KeapClient, db: Session, checkpoint_manager
     total_records = 0
     success_count = 0
     failed_count = 0
-    error_logger = ErrorLogger()
+    error_logger = get_error_logger()
 
     try:
         # Get query parameters based on update flag
@@ -1630,7 +1662,7 @@ def load_affiliate_summaries(client: KeapClient, db: Session, checkpoint_manager
     total_records = 0
     success_count = 0
     failed_count = 0
-    error_logger = ErrorLogger()
+    error_logger = get_error_logger()
 
     # Get query parameters based on update flag
     query_params = checkpoint_manager.get_query_params(entity_type, update)
@@ -1681,12 +1713,12 @@ def load_affiliate_summaries(client: KeapClient, db: Session, checkpoint_manager
 
 @audit_load_operation
 def load_affiliate_clawbacks(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
-    """Load all affiliate clawbacks."""
+    """Load affiliate clawbacks from Keap API into database."""
     entity_type = 'affiliate_clawbacks'
     total_records = 0
     success_count = 0
     failed_count = 0
-    error_logger = ErrorLogger()
+    error_logger = get_error_logger()
 
     try:
         # Get query parameters based on update flag
@@ -1760,12 +1792,12 @@ def load_affiliate_clawbacks(client: KeapClient, db: Session, checkpoint_manager
 
 @audit_load_operation
 def load_affiliate_payments(client: KeapClient, db: Session, checkpoint_manager: CheckpointManager, batch_size: int = 50, update: bool = False) -> tuple:
-    """Load all affiliate payments."""
+    """Load affiliate payments from Keap API into database."""
     entity_type = 'affiliate_payments'
     total_records = 0
     success_count = 0
     failed_count = 0
-    error_logger = ErrorLogger()
+    error_logger = get_error_logger()
 
     try:
         # Get query parameters based on update flag
@@ -2046,11 +2078,10 @@ def main(update: bool = False, entity_type: str = None, entity_id: int = None):
     from src.database.init_db import init_db
     init_db()
 
-    if not update:
-        checkpoint_manager.clear_checkpoints()
-        logger.info("Starting fresh data load...")
-    else:
+    if update:
         logger.info("Performing update operation...")
+    else:
+        logger.info("Starting full data load...")
 
     try:
         if entity_type and entity_id:

@@ -40,43 +40,39 @@ CREATE TYPE custom_field_type AS ENUM (
 );
 
 CREATE TYPE note_type AS ENUM (
-    'CALL',
-    'EMAIL',
-    'FAX',
-    'LETTER',
-    'MEETING',
-    'OTHER',
-    'TASK',
+    'Call',
+    'Email',
+    'Fax',
+    'Letter',
+    'Meeting',
+    'Other',
+    'Task',
     'SMS',
-    'SOCIAL',
-    'CHAT',
-    'VOICEMAIL',
-    'WEBSITE',
-    'FORM'
+    'Social',
+    'Chat',
+    'Voicemail',
+    'Website',
+    'Form'
 );
 
 CREATE TYPE contact_email_status AS ENUM (
-    'ACTIVE',
-    'BOUNCED',
-    'UNSUBSCRIBED',
-    'SPAM',
-    'MANUAL',
     'UnengagedMarketable',
     'SingleOptIn',
     'DoubleOptIn',
-    'MARKETABLE',
-    'NON_MARKETABLE',
-    'UNENGAGED',
-    'ENGAGED',
-    'ListUnsubscribe',
-    'HardBounce',
     'Confirmed',
-    'SoftBounce',
-    'Unconfirmed',
-    'Pending',
+    'UnengagedNonMarketable',
+    'NonMarketable',
+    'Lockdown',
+    'Bounce',
+    'HardBounce',
+    'Manual',
+    'Admin',
+    'System',
+    'ListUnsubscribe',
+    'Feedback',
+    'Spam',
     'Invalid',
-    'Blocked',
-    'Unknown'
+    'Deactivated'
 );
 
 CREATE TYPE order_status AS ENUM (
@@ -110,33 +106,33 @@ CREATE TYPE task_priority AS ENUM (
 );
 
 CREATE TYPE subscription_status AS ENUM (
-    'ACTIVE',
-    'CANCELLED',
-    'EXPIRED',
-    'PAUSED',
-    'TRIAL',
-    'PAST_DUE',
-    'PENDING',
-    'FAILED',
-    'ON_HOLD'
+    'Active',
+    'Cancelled',
+    'Expired',
+    'Paused',
+    'Trial',
+    'Past Due',
+    'Pending',
+    'Failed',
+    'On Hold'
 );
 
 CREATE TYPE campaign_status AS ENUM (
-    'DRAFT',
-    'ACTIVE',
-    'PAUSED',
-    'COMPLETED',
-    'ARCHIVED',
-    'SCHEDULED',
-    'STOPPED'
+    'Draft',
+    'Active',
+    'Paused',
+    'Completed',
+    'Archived',
+    'Scheduled',
+    'Stopped'
 );
 
 CREATE TYPE affiliate_status AS ENUM (
-    'ACTIVE',
-    'INACTIVE',
-    'PENDING',
-    'SUSPENDED',
-    'TERMINATED'
+    'Active',
+    'Inactive',
+    'Pending',
+    'Suspended',
+    'Terminated'
 );
 
 CREATE TYPE order_source_type AS ENUM (
@@ -177,6 +173,19 @@ CREATE TYPE contact_source_type AS ENUM (
     'AFFILIATE'
 );
 
+CREATE TYPE opportunity_stage AS ENUM (
+    'Qualified',
+    'Proposal',
+    'Negotiation',
+    'Closed Won',
+    'Closed Lost',
+    'Discovery',
+    'Presentation',
+    'Decision',
+    'Contract',
+    'Implementation'
+);
+
 -- =============================================
 -- Create Functions
 -- =============================================
@@ -201,7 +210,7 @@ CREATE TABLE contacts (
     company_name VARCHAR(200),
     job_title VARCHAR(200),
     email_opted_in BOOLEAN DEFAULT FALSE,
-    email_status VARCHAR(50),
+    email_status contact_email_status,
     score_value VARCHAR(50),
     owner_id INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -226,6 +235,7 @@ CREATE TABLE email_addresses (
     email VARCHAR(255) NOT NULL,
     field VARCHAR(50),
     type VARCHAR(50),
+    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -234,10 +244,11 @@ CREATE TABLE phone_numbers (
     number VARCHAR(50) NOT NULL,
     field VARCHAR(50),
     type VARCHAR(50),
+    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE addresses (
+CREATE TABLE contact_addresses (
     id INTEGER PRIMARY KEY,
     country_code VARCHAR(10),
     field address_type NOT NULL,
@@ -248,6 +259,7 @@ CREATE TABLE addresses (
     region VARCHAR(100),
     zip_code VARCHAR(20),
     zip_four VARCHAR(10),
+    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -256,6 +268,7 @@ CREATE TABLE fax_numbers (
     number VARCHAR(50) NOT NULL,
     field VARCHAR(50),
     type VARCHAR(50),
+    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -342,6 +355,7 @@ CREATE TABLE tasks (
     status task_status,
     type VARCHAR(50),
     due_date TIMESTAMP WITH TIME ZONE,
+    completed_date TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -414,7 +428,6 @@ CREATE TABLE order_payments (
 
 CREATE TABLE order_transactions (
     id INTEGER PRIMARY KEY,
-    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
     test BOOLEAN DEFAULT FALSE,
     amount NUMERIC(10,2) NOT NULL,
     currency VARCHAR(10),
@@ -431,6 +444,13 @@ CREATE TABLE order_transactions (
     payment_id INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE order_transaction (
+    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+    transaction_id INTEGER REFERENCES order_transactions(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (order_id, transaction_id)
 );
 
 CREATE TABLE order_custom_field_values (
@@ -477,6 +497,11 @@ CREATE TABLE shipping_information (
     state VARCHAR(100),
     zip VARCHAR(20),
     country VARCHAR(100),
+    tracking_number VARCHAR(100),
+    carrier VARCHAR(100),
+    shipping_status VARCHAR(50),
+    shipping_date TIMESTAMP WITH TIME ZONE,
+    estimated_delivery_date TIMESTAMP WITH TIME ZONE,
     invoice_to_company BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -526,6 +551,12 @@ CREATE TABLE subscriptions (
     subscription_plan_id INTEGER REFERENCES subscription_plans(id),
     status subscription_status,
     next_bill_date TIMESTAMP WITH TIME ZONE,
+    contact_id INTEGER REFERENCES contacts(id),
+    payment_gateway_id INTEGER REFERENCES payment_gateways(id),
+    credit_card_id INTEGER REFERENCES credit_cards(id),
+    start_date TIMESTAMP WITH TIME ZONE,
+    end_date TIMESTAMP WITH TIME ZONE,
+    billing_cycle VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -535,7 +566,7 @@ CREATE TABLE notes (
     contact_id INTEGER REFERENCES contacts(id),
     title VARCHAR(200),
     body TEXT,
-    type VARCHAR(50),
+    type note_type,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -663,7 +694,7 @@ CREATE TABLE affiliate_payments (
 
 CREATE TABLE account_profiles (
     id INTEGER PRIMARY KEY,
-    address_id INTEGER REFERENCES addresses(id),
+    address_id INTEGER REFERENCES contact_addresses(id),
     business_primary_color VARCHAR(50),
     business_secondary_color VARCHAR(50),
     business_type VARCHAR(100),
@@ -700,6 +731,17 @@ CREATE TABLE credit_cards (
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE payment_gateways (
+    id INTEGER PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    type VARCHAR(50),
+    is_active BOOLEAN DEFAULT TRUE,
+    credentials JSONB,
+    settings JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- =============================================
 -- Create Join Tables
 -- =============================================
@@ -708,30 +750,6 @@ CREATE TABLE contact_tag (
     contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
     tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
     PRIMARY KEY (contact_id, tag_id)
-);
-
-CREATE TABLE contact_address (
-    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
-    address_id INTEGER REFERENCES addresses(id) ON DELETE CASCADE,
-    PRIMARY KEY (contact_id, address_id)
-);
-
-CREATE TABLE contact_email (
-    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
-    email_id INTEGER REFERENCES email_addresses(id) ON DELETE CASCADE,
-    PRIMARY KEY (contact_id, email_id)
-);
-
-CREATE TABLE contact_phone (
-    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
-    phone_id INTEGER REFERENCES phone_numbers(id) ON DELETE CASCADE,
-    PRIMARY KEY (contact_id, phone_id)
-);
-
-CREATE TABLE contact_fax (
-    contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
-    fax_id INTEGER REFERENCES fax_numbers(id) ON DELETE CASCADE,
-    PRIMARY KEY (contact_id, fax_id)
 );
 
 CREATE TABLE contact_opportunity (
@@ -796,9 +814,11 @@ CREATE INDEX idx_contacts_lead_source_id ON contacts(lead_source_id);
 
 CREATE INDEX idx_email_addresses_email ON email_addresses(email);
 CREATE INDEX idx_email_addresses_field ON email_addresses(field);
+CREATE INDEX idx_email_addresses_contact_id ON email_addresses(contact_id);
 
 CREATE INDEX idx_phone_numbers_number ON phone_numbers(number);
 CREATE INDEX idx_phone_numbers_field ON phone_numbers(field);
+CREATE INDEX idx_phone_numbers_contact_id ON phone_numbers(contact_id);
 
 CREATE INDEX idx_addresses_country_code ON addresses(country_code);
 CREATE INDEX idx_addresses_field ON addresses(field);
@@ -875,18 +895,6 @@ CREATE INDEX idx_subscription_custom_field_values_custom_field_id ON subscriptio
 CREATE INDEX idx_note_custom_field_values_note_id ON note_custom_field_values(note_id);
 CREATE INDEX idx_note_custom_field_values_custom_field_id ON note_custom_field_values(custom_field_id);
 
-CREATE INDEX idx_contact_address_contact_id ON contact_address(contact_id);
-CREATE INDEX idx_contact_address_address_id ON contact_address(address_id);
-
-CREATE INDEX idx_contact_email_contact_id ON contact_email(contact_id);
-CREATE INDEX idx_contact_email_email_id ON contact_email(email_id);
-
-CREATE INDEX idx_contact_phone_contact_id ON contact_phone(contact_id);
-CREATE INDEX idx_contact_phone_phone_id ON contact_phone(phone_id);
-
-CREATE INDEX idx_contact_fax_contact_id ON contact_fax(contact_id);
-CREATE INDEX idx_contact_fax_fax_id ON contact_fax(fax_id);
-
 CREATE INDEX idx_contact_opportunity_contact_id ON contact_opportunity(contact_id);
 CREATE INDEX idx_contact_opportunity_opportunity_id ON contact_opportunity(opportunity_id);
 
@@ -910,6 +918,8 @@ CREATE INDEX idx_campaign_sequence_sequence_id ON campaign_sequence(sequence_id)
 
 CREATE INDEX idx_fax_numbers_number ON fax_numbers(number);
 CREATE INDEX idx_fax_numbers_field ON fax_numbers(field);
+
+CREATE INDEX idx_fax_numbers_contact_id ON fax_numbers(contact_id);
 
 CREATE INDEX idx_payment_plans_name ON payment_plans(name);
 CREATE INDEX idx_payment_plans_frequency ON payment_plans(frequency);
@@ -946,6 +956,11 @@ CREATE INDEX idx_products_product_price ON products(product_price);
 CREATE INDEX idx_products_active ON products(active);
 CREATE INDEX idx_products_subscription_only ON products(subscription_only);
 CREATE INDEX idx_products_status ON products(status);
+
+CREATE INDEX idx_contact_addresses_contact_id ON contact_addresses(contact_id);
+
+CREATE INDEX idx_order_transaction_order_id ON order_transaction(order_id);
+CREATE INDEX idx_order_transaction_transaction_id ON order_transaction(transaction_id);
 
 -- =============================================
 -- Create Triggers

@@ -5,10 +5,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
 from dateutil.parser import parse as parse_datetime
 
-from src.models.models import (AccountProfile, Address, Affiliate, AffiliateClawback, AffiliateCommission, AffiliatePayment, AffiliateProgram, AffiliateRedirect, AffiliateRedirectProgram,
-                               AffiliateStatus, AffiliateSummary, BusinessGoal, Campaign, CampaignSequence, CampaignStatus, Contact, ContactCustomFieldValue, ContactEmailStatus, ContactSourceType,
+from src.models.models import (AccountProfile, ContactAddress, Affiliate, AffiliateClawback, AffiliateCommission, AffiliatePayment, AffiliateProgram, AffiliateRedirect, AffiliateRedirectProgram,
+                               AffiliateStatus, AffiliateSummary, BusinessGoal, Campaign, CampaignSequence, CampaignStatus, Contact, ContactAddress, ContactCustomFieldValue, ContactEmailStatus, ContactSourceType,
                                CreditCard, CustomField, CustomFieldType, EmailAddress, FaxNumber, Note, NoteType, Opportunity, Order, OrderItem, OrderPayment, OrderSourceType, OrderStatus,
-                               OrderTransaction, PaymentGateway, PhoneNumber, Product, ShippingInformation, Subscription, SubscriptionStatus, Tag, TagCategory, Task, TaskPriority, TaskStatus)
+                               OrderTransaction, PaymentGateway, PhoneNumber, Product, ProductOption, ShippingInformation, Subscription, SubscriptionPlan, SubscriptionStatus,
+                               Tag, TagCategory, Task, TaskPriority, TaskStatus, Tag)
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +67,14 @@ def safe_enum_convert(value: Any, enum_class: Type[enum.Enum], default: Optional
         try:
             # Convert both the input and enum values to lowercase for comparison
             value_lower = str(value).lower()
+            # Also try with underscores removed for cases like "SingleOptIn" vs "SINGLE_OPT_IN"
+            value_normalized = value_lower.replace('_', '')
+            
             for enum_value in enum_class:
-                if str(enum_value.value).lower() == value_lower:
+                enum_str = str(enum_value.value).lower()
+                enum_normalized = enum_str.replace('_', '')
+                
+                if enum_str == value_lower or enum_normalized == value_normalized:
                     return enum_value
 
             # If we get here, no match was found
@@ -101,19 +108,43 @@ def transform_contact(contact_data: Dict[str, Any]) -> Contact:
     return Contact(id=contact_data.get('id'), given_name=contact_data.get('given_name'), family_name=contact_data.get('family_name'), middle_name=contact_data.get('middle_name'), company_name=contact_data.get('company_name'), job_title=contact_data.get('job_title'), email_opted_in=contact_data.get('email_opted_in'), email_status=email_status, score_value=contact_data.get('score_value'), owner_id=contact_data.get('owner_id'), created_at=safe_parse_datetime(contact_data.get('created_at')), modified_at=safe_parse_datetime(contact_data.get('modified_at')), last_updated_utc_millis=contact_data.get('last_updated_utc_millis'), anniversary=safe_parse_datetime(contact_data.get('anniversary')), birthday=safe_parse_datetime(contact_data.get('birthday')), contact_type=contact_data.get('contact_type'), duplicate_option=contact_data.get('duplicate_option'), lead_source_id=contact_data.get('lead_source_id'), preferred_locale=contact_data.get('preferred_locale'), preferred_name=contact_data.get('preferred_name'), source_type=source_type, spouse_name=contact_data.get('spouse_name'), time_zone=contact_data.get('time_zone'), website=contact_data.get('website'), year_created=contact_data.get('year_created'))
 
 
-def transform_email_address(api_data: Dict[str, Any]) -> EmailAddress:
+def transform_email_address(api_data: Dict[str, Any], contact_id: int) -> EmailAddress:
     """Transform API email address data into an EmailAddress model instance."""
-    return EmailAddress(id=api_data.get('id'), email=api_data.get('email'), field=api_data.get('field'), type=api_data.get('type'))
+    return EmailAddress(
+        id=api_data.get('id'),
+        email=api_data.get('email'),
+        field=api_data.get('field'),
+        type=api_data.get('type'),
+        contact_id=contact_id
+    )
 
 
-def transform_phone_number(api_data: Dict[str, Any]) -> PhoneNumber:
+def transform_phone_number(api_data: Dict[str, Any], contact_id: int) -> PhoneNumber:
     """Transform API phone number data into a PhoneNumber model instance."""
-    return PhoneNumber(id=api_data.get('id'), number=api_data.get('number'), field=api_data.get('field'), type=api_data.get('type'))
+    return PhoneNumber(
+        id=api_data.get('id'),
+        number=api_data.get('number'),
+        field=api_data.get('field'),
+        type=api_data.get('type'),
+        contact_id=contact_id
+    )
 
 
-def transform_address(api_data: Dict[str, Any]) -> Address:
-    """Transform API address data into an Address model instance."""
-    return Address(id=api_data.get('id'), country_code=api_data.get('country_code'), field=api_data.get('field'), line1=api_data.get('line1'), line2=api_data.get('line2'), locality=api_data.get('locality'), postal_code=api_data.get('postal_code'), region=api_data.get('region'), zip_code=api_data.get('zip_code'), zip_four=api_data.get('zip_four'))
+def transform_contact_address(api_data: Dict[str, Any], contact_id: int) -> ContactAddress:
+    """Transform API address data into a ContactAddress model instance."""
+    return ContactAddress(
+        id=api_data.get('id'),
+        country_code=api_data.get('country_code'),
+        field=api_data.get('field'),
+        line1=api_data.get('line1'),
+        line2=api_data.get('line2'),
+        locality=api_data.get('locality'),
+        postal_code=api_data.get('postal_code'),
+        region=api_data.get('region'),
+        zip_code=api_data.get('zip_code'),
+        zip_four=api_data.get('zip_four'),
+        contact_id=contact_id
+    )
 
 
 def transform_tag(api_data: Dict[str, Any]) -> Optional[Tag]:
@@ -267,7 +298,6 @@ def transform_order_transaction(api_data: Dict[str, Any]) -> OrderTransaction:
     """Transform API order transaction data into OrderTransaction model instance."""
     return OrderTransaction(
         id=api_data.get('id'),
-        order_id=api_data.get('order_id'),
         test=api_data.get('test', False),
         amount=api_data.get('amount'),
         currency=api_data.get('currency'),
@@ -290,8 +320,18 @@ def transform_order_transaction(api_data: Dict[str, Any]) -> OrderTransaction:
 def transform_note(api_data: Dict[str, Any]) -> Note:
     """Transform API data to Note model."""
     note_type = safe_enum_convert(api_data.get('type'), NoteType)
+    # Convert enum to string value if it exists
+    type_value = note_type.value if note_type else None
 
-    return Note(id=api_data.get('id'), contact_id=api_data.get('contact_id'), title=api_data.get('title'), body=api_data.get('body'), type=note_type, created_at=safe_parse_datetime(api_data.get('created_at')), modified_at=safe_parse_datetime(api_data.get('modified_at')))
+    return Note(
+        id=api_data.get('id'),
+        contact_id=api_data.get('contact_id'),
+        title=api_data.get('title'),
+        body=api_data.get('body'),
+        type=type_value,  # Use the string value instead of enum
+        created_at=safe_parse_datetime(api_data.get('created_at')),
+        modified_at=safe_parse_datetime(api_data.get('modified_at'))
+    )
 
 
 def transform_task(api_data: Dict[str, Any]) -> Task:
@@ -318,7 +358,21 @@ def transform_subscription(api_data: Dict[str, Any]) -> Subscription:
     """Transform subscription data from API to database model."""
     status = safe_enum_convert(api_data.get('status'), SubscriptionStatus)
 
-    return Subscription(id=api_data.get('id'), product_id=api_data.get('product_id'), subscription_plan_id=api_data.get('subscription_plan_id'), status=status, next_bill_date=safe_parse_datetime(api_data.get('next_bill_date')), created_at=safe_parse_datetime(api_data.get('created_at')), modified_at=safe_parse_datetime(api_data.get('modified_at')))
+    return Subscription(
+        id=api_data.get('id'),
+        product_id=api_data.get('product_id'),
+        subscription_plan_id=api_data.get('subscription_plan_id'),
+        status=status,
+        next_bill_date=safe_parse_datetime(api_data.get('next_bill_date')),
+        contact_id=api_data.get('contact_id'),
+        payment_gateway_id=api_data.get('payment_gateway_id'),
+        credit_card_id=api_data.get('credit_card_id'),
+        start_date=safe_parse_datetime(api_data.get('start_date')),
+        end_date=safe_parse_datetime(api_data.get('end_date')),
+        billing_cycle=api_data.get('billing_cycle'),
+        created_at=safe_parse_datetime(api_data.get('created_at')),
+        modified_at=safe_parse_datetime(api_data.get('modified_at'))
+    )
 
 
 def transform_affiliate(api_data: Dict[str, Any]) -> Affiliate:
@@ -368,9 +422,15 @@ def transform_affiliate_payment(api_data: Dict[str, Any]) -> AffiliatePayment:
     return AffiliatePayment(id=api_data.get('id'), affiliate_id=api_data.get('affiliate_id'), amount=api_data.get('amount'), date=safe_parse_datetime(api_data.get('date')), notes=api_data.get('notes'), type=api_data.get('type'))
 
 
-def transform_fax_number(api_data: Dict[str, Any]) -> FaxNumber:
+def transform_fax_number(api_data: Dict[str, Any], contact_id: int) -> FaxNumber:
     """Transform API fax number data into a FaxNumber model instance."""
-    return FaxNumber(id=api_data.get('id'), number=api_data.get('number'), field=api_data.get('field'), type=api_data.get('type'))
+    return FaxNumber(
+        id=api_data.get('id'),
+        number=api_data.get('number'),
+        field=api_data.get('field'),
+        type=api_data.get('type'),
+        contact_id=contact_id
+    )
 
 
 def transform_business_goal(api_data: Dict[str, Any], account_profile_id: int) -> BusinessGoal:
@@ -476,9 +536,9 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
         for email in api_data['email_addresses']:
             try:
                 if isinstance(email, dict):
-                    email_address = transform_email_address(email)
+                    email_address = transform_email_address(email, contact.id)
                 else:
-                    email_address = transform_email_address(email.__dict__)
+                    email_address = transform_email_address(email.__dict__, contact.id)
                 contact.email_addresses.append(email_address)
             except Exception as e:
                 logger.error(f"Error transforming email address for contact {contact.id}: {str(e)}")
@@ -488,9 +548,9 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
         for phone in api_data['phone_numbers']:
             try:
                 if isinstance(phone, dict):
-                    phone_number = transform_phone_number(phone)
+                    phone_number = transform_phone_number(phone, contact.id)
                 else:
-                    phone_number = transform_phone_number(phone.__dict__)
+                    phone_number = transform_phone_number(phone.__dict__, contact.id)
                 contact.phone_numbers.append(phone_number)
             except Exception as e:
                 logger.error(f"Error transforming phone number for contact {contact.id}: {str(e)}")
@@ -500,9 +560,9 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
         for address in api_data['addresses']:
             try:
                 if isinstance(address, dict):
-                    address_obj = transform_address(address)
+                    address_obj = transform_contact_address(address, contact.id)
                 else:
-                    address_obj = transform_address(address.__dict__)
+                    address_obj = transform_contact_address(address.__dict__, contact.id)
                 contact.addresses.append(address_obj)
             except Exception as e:
                 logger.error(f"Error transforming address for contact {contact.id}: {str(e)}")
@@ -512,9 +572,9 @@ def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) ->
         for fax in api_data['fax_numbers']:
             try:
                 if isinstance(fax, dict):
-                    fax_number = transform_fax_number(fax)
+                    fax_number = transform_fax_number(fax, contact.id)
                 else:
-                    fax_number = transform_fax_number(fax.__dict__)
+                    fax_number = transform_fax_number(fax.__dict__, contact.id)
                 contact.fax_numbers.append(fax_number)
             except Exception as e:
                 logger.error(f"Error transforming fax number for contact {contact.id}: {str(e)}")

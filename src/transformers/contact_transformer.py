@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from src.utils.logger import get_logger
 
-from src.models.models import (Address, Contact, ContactCustomFieldValue, EmailAddress, FaxNumber, Note, Opportunity, Order, PhoneNumber, Subscription, Tag, Task)
+from src.models.models import (ContactAddress, Contact, ContactCustomFieldValue, EmailAddress, FaxNumber, Note, Opportunity, Order, PhoneNumber, Subscription, Tag, Task)
 
 logger = get_logger(__name__)
 
@@ -34,8 +34,16 @@ class ContactTransformer:
                 # Clear existing address relationships
                 contact.addresses = []
                 for addr_data in data['addresses']:
-                    address = Address(id=addr_data[
-                        'id'], line1=addr_data.get('line1'), line2=addr_data.get('line2'), city=addr_data.get('city'), state=addr_data.get('state'), postal_code=addr_data.get('postal_code'), country=addr_data.get('country'), type=addr_data.get('type'))
+                    address = ContactAddress(
+                        id=addr_data['id'],
+                        field=addr_data.get('type'),
+                        line1=addr_data.get('line1'),
+                        line2=addr_data.get('line2'),
+                        locality=addr_data.get('city'),
+                        region=addr_data.get('state'),
+                        postal_code=addr_data.get('postal_code'),
+                        country_code=addr_data.get('country')
+                    )
                     address.contact = contact
                     db.merge(address)
                     contact.addresses.append(address)

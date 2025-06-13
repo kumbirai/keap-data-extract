@@ -412,13 +412,24 @@ class KeapClient(KeapBaseClient):
                     logger.error(f"Failed to parse transaction response as JSON: {response}")
                     return []
             
+            transactions = []
             # Handle case where response is a list
             if isinstance(response, list):
-                return [transform_order_transaction(transaction) for transaction in response]
+                for transaction_data in response:
+                    transaction = transform_order_transaction(transaction_data)
+                    # Add the order to the transaction's orders relationship
+                    transaction.orders = [Order(id=order_id)]
+                    transactions.append(transaction)
+                return transactions
             
             # Handle case where response is a dictionary with a transactions field
             if isinstance(response, dict) and 'transactions' in response:
-                return [transform_order_transaction(transaction) for transaction in response['transactions']]
+                for transaction_data in response['transactions']:
+                    transaction = transform_order_transaction(transaction_data)
+                    # Add the order to the transaction's orders relationship
+                    transaction.orders = [Order(id=order_id)]
+                    transactions.append(transaction)
+                return transactions
             
             logger.warning(f"Unexpected response format for transactions: {response}")
             return []
