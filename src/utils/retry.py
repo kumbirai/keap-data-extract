@@ -9,8 +9,8 @@ from ..api.exceptions import KeapRateLimitError
 logger = logging.getLogger(__name__)
 
 
-def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay: float = 60.0, exponential_base: float = 2.0, jitter: bool = True, exceptions: Tuple[Type[Exception], ...] = (
-        KeapRateLimitError,)) -> Callable:
+def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay: float = 60.0, exponential_base: float = 2.0, jitter: bool = True,
+                        exceptions: Tuple[Type[Exception], ...] = (KeapRateLimitError,)) -> Callable:
     """
     Decorator that implements exponential backoff with jitter for retrying operations
     

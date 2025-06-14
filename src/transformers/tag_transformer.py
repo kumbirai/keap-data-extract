@@ -1,9 +1,9 @@
 from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
-from src.utils.logger import get_logger
 
 from src.models.models import Contact, Tag, TagCategory
+from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 

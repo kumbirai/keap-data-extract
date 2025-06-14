@@ -3,8 +3,8 @@ import logging
 import os
 import traceback
 from datetime import datetime
-from typing import Any, Dict, Optional
 from enum import Enum
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +35,7 @@ class ErrorLogger:
         date_str = datetime.now().strftime('%Y%m%d')
         return os.path.join(self.error_log_dir, f'data_load_errors_{date_str}.json')
 
-    def _format_error_entry(self, entity_type: str, entity_id: int, error_type: str, 
-                          error_message: str, additional_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _format_error_entry(self, entity_type: str, entity_id: int, error_type: str, error_message: str, additional_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Format an error entry with all relevant information.
         
         Args:
@@ -49,18 +48,10 @@ class ErrorLogger:
         Returns:
             Dict containing the formatted error entry
         """
-        return {
-            'timestamp': datetime.now().isoformat(),
-            'entity_type': entity_type,
-            'entity_id': entity_id,
-            'error_type': error_type,
-            'error_message': error_message,
-            'additional_data': additional_data or {},
-            'stack_trace': traceback.format_exc()
-        }
+        return {'timestamp': datetime.now().isoformat(), 'entity_type': entity_type, 'entity_id': entity_id, 'error_type': error_type, 'error_message': error_message,
+                'additional_data': additional_data or {}, 'stack_trace': traceback.format_exc()}
 
-    def log_error(self, entity_type: str, entity_id: int, error_type: str, 
-                 error_message: str, additional_data: Optional[Dict[str, Any]] = None) -> None:
+    def log_error(self, entity_type: str, entity_id: int, error_type: str, error_message: str, additional_data: Optional[Dict[str, Any]] = None) -> None:
         """Log an error with structured data.
         
         Args:
@@ -71,13 +62,7 @@ class ErrorLogger:
             additional_data: Any additional context data
         """
         try:
-            error_entry = self._format_error_entry(
-                entity_type=entity_type,
-                entity_id=entity_id,
-                error_type=error_type,
-                error_message=error_message,
-                additional_data=additional_data
-            )
+            error_entry = self._format_error_entry(entity_type=entity_type, entity_id=entity_id, error_type=error_type, error_message=error_message, additional_data=additional_data)
 
             # Read existing errors if file exists
             existing_errors = []
@@ -98,19 +83,15 @@ class ErrorLogger:
                 json.dump(existing_errors, f, indent=2, cls=CustomJSONEncoder)
 
             # Log to console for immediate visibility
-            logger.error(
-                f"Error processing {entity_type} {entity_id}: {error_message}\n"
-                f"Type: {error_type}\n"
-                f"Additional Data: {json.dumps(additional_data or {}, indent=2, cls=CustomJSONEncoder)}"
-            )
+            logger.error(f"Error processing {entity_type} {entity_id}: {error_message}\n"
+                         f"Type: {error_type}\n"
+                         f"Additional Data: {json.dumps(additional_data or {}, indent=2, cls=CustomJSONEncoder)}")
 
         except Exception as e:
             logger.error(f"Failed to write to error log file: {str(e)}")
             # Log the original error to console as fallback
-            logger.error(
-                f"Original error - Entity: {entity_type} {entity_id}, "
-                f"Type: {error_type}, Message: {error_message}"
-            )
+            logger.error(f"Original error - Entity: {entity_type} {entity_id}, "
+                         f"Type: {error_type}, Message: {error_message}")
 
     def get_errors(self, entity_type: Optional[str] = None) -> list:
         """Retrieve all errors or filter by entity type.

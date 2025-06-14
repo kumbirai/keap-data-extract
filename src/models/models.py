@@ -2,7 +2,7 @@ import enum
 from datetime import datetime, timezone
 
 from sqlalchemy import (BigInteger, Boolean, Column, Date, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Table, Text, UniqueConstraint, Numeric, func)
-from sqlalchemy.orm import declarative_base, relationship, foreign
+from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
@@ -195,28 +195,38 @@ class NoteType(enum.Enum):
 
 
 # Join tables
-contact_tag = Table('contact_tag', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id'), primary_key=True), Column('tag_id', Integer, ForeignKey('tags.id'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_tag = Table('contact_tag', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id'), primary_key=True), Column('tag_id', Integer, ForeignKey('tags.id'), primary_key=True),
+                    Column('created_at', DateTime, default=utc_now))
 
-contact_opportunity = Table('contact_opportunity', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('opportunity_id', Integer, ForeignKey('opportunities.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_opportunity = Table('contact_opportunity', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
+                            Column('opportunity_id', Integer, ForeignKey('opportunities.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-contact_task = Table('contact_task', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('task_id', Integer, ForeignKey('tasks.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_task = Table('contact_task', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
+                     Column('task_id', Integer, ForeignKey('tasks.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-contact_note = Table('contact_note', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('note_id', Integer, ForeignKey('notes.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_note = Table('contact_note', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
+                     Column('note_id', Integer, ForeignKey('notes.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-contact_order = Table('contact_order', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('order_id', Integer, ForeignKey('orders.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_order = Table('contact_order', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
+                      Column('order_id', Integer, ForeignKey('orders.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-contact_subscription = Table('contact_subscription', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True), Column('subscription_id', Integer, ForeignKey('subscriptions.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+contact_subscription = Table('contact_subscription', Base.metadata, Column('contact_id', Integer, ForeignKey('contacts.id', ondelete='CASCADE'), primary_key=True),
+                             Column('subscription_id', Integer, ForeignKey('subscriptions.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-order_item = Table('order_item', Base.metadata, Column('order_id', Integer, ForeignKey('orders.id', ondelete='CASCADE'), primary_key=True), Column('item_id', Integer, ForeignKey('order_items.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+order_item = Table('order_item', Base.metadata, Column('order_id', Integer, ForeignKey('orders.id', ondelete='CASCADE'), primary_key=True),
+                   Column('item_id', Integer, ForeignKey('order_items.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-product_order_item = Table('product_order_item', Base.metadata, Column('product_id', Integer, ForeignKey('products.id', ondelete='CASCADE'), primary_key=True), Column('order_item_id', Integer, ForeignKey('order_items.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+product_order_item = Table('product_order_item', Base.metadata, Column('product_id', Integer, ForeignKey('products.id', ondelete='CASCADE'), primary_key=True),
+                           Column('order_item_id', Integer, ForeignKey('order_items.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-product_subscription = Table('product_subscription', Base.metadata, Column('product_id', Integer, ForeignKey('products.id', ondelete='CASCADE'), primary_key=True), Column('subscription_id', Integer, ForeignKey('subscriptions.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+product_subscription = Table('product_subscription', Base.metadata, Column('product_id', Integer, ForeignKey('products.id', ondelete='CASCADE'), primary_key=True),
+                             Column('subscription_id', Integer, ForeignKey('subscriptions.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-campaign_sequence = Table('campaign_sequence', Base.metadata, Column('campaign_id', Integer, ForeignKey('campaigns.id', ondelete='CASCADE'), primary_key=True), Column('sequence_id', Integer, ForeignKey('campaign_sequences.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
+campaign_sequence = Table('campaign_sequence', Base.metadata, Column('campaign_id', Integer, ForeignKey('campaigns.id', ondelete='CASCADE'), primary_key=True),
+                          Column('sequence_id', Integer, ForeignKey('campaign_sequences.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
-order_transaction = Table('order_transaction', Base.metadata, Column('order_id', Integer, ForeignKey('orders.id', ondelete='CASCADE'), primary_key=True), Column('transaction_id', Integer, ForeignKey('order_transactions.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now)
-)
+order_transaction = Table('order_transaction', Base.metadata, Column('order_id', Integer, ForeignKey('orders.id', ondelete='CASCADE'), primary_key=True),
+                          Column('transaction_id', Integer, ForeignKey('order_transactions.id', ondelete='CASCADE'), primary_key=True), Column('created_at', DateTime, default=utc_now))
 
 
 class AccountProfile(Base):
@@ -276,21 +286,16 @@ class Affiliate(Base):
 
     # Relationships
     contact = relationship("Contact", back_populates="affiliate")
-    parent = relationship("Affiliate", 
-                         remote_side=[id],
-                         primaryjoin="foreign(Affiliate.parent_id)==Affiliate.id",
-                         back_populates="children")
-    children = relationship("Affiliate", 
-                          back_populates="parent",
-                          primaryjoin="Affiliate.id==foreign(Affiliate.parent_id)")
+    parent = relationship("Affiliate", remote_side=[id], primaryjoin="foreign(Affiliate.parent_id)==Affiliate.id", back_populates="children")
+    children = relationship("Affiliate", back_populates="parent", primaryjoin="Affiliate.id==foreign(Affiliate.parent_id)")
     commissions = relationship("AffiliateCommission", back_populates="affiliate", cascade="all, delete-orphan")
     programs = relationship("AffiliateProgram", back_populates="affiliate", cascade="all, delete-orphan")
     redirects = relationship("AffiliateRedirect", back_populates="affiliate", cascade="all, delete-orphan")
     clawbacks = relationship("AffiliateClawback", back_populates="affiliate", cascade="all, delete-orphan")
     payments = relationship("AffiliatePayment", back_populates="affiliate", cascade="all, delete-orphan")
     summary = relationship("AffiliateSummary", back_populates="affiliate", uselist=False, cascade="all, delete-orphan")
-    lead_orders = relationship("Order", back_populates="lead_affiliate", foreign_keys="Order.lead_affiliate_id")
-    sales_orders = relationship("Order", back_populates="sales_affiliate", foreign_keys="Order.sales_affiliate_id")
+    lead_orders = relationship("Order", back_populates="lead_affiliate", foreign_keys="Order.lead_affiliate_id", primaryjoin="Affiliate.id==Order.lead_affiliate_id", post_update=True)
+    sales_orders = relationship("Order", back_populates="sales_affiliate", foreign_keys="Order.sales_affiliate_id", primaryjoin="Affiliate.id==Order.sales_affiliate_id", post_update=True)
 
     def __repr__(self):
         return f"<Affiliate(id={self.id}, code='{self.code}', name='{self.name}', status='{self.status}')>"
@@ -456,14 +461,14 @@ class Contact(Base):
     phone_numbers = relationship("PhoneNumber", back_populates="contact", cascade="all, delete-orphan")
     addresses = relationship("ContactAddress", back_populates="contact", cascade="all, delete-orphan")
     fax_numbers = relationship("FaxNumber", back_populates="contact", cascade="all, delete-orphan")
-    tags = relationship("Tag", secondary=contact_tag, back_populates="contacts", cascade="none")
+    tags = relationship("Tag", secondary=contact_tag, back_populates="contacts", cascade="save-update, merge")
     custom_field_values = relationship("ContactCustomFieldValue", back_populates="contact", cascade="all, delete-orphan", foreign_keys="ContactCustomFieldValue.contact_id")
     opportunities = relationship("Opportunity", secondary="contact_opportunity", back_populates="contacts", cascade="none")
     tasks = relationship("Task", secondary="contact_task", back_populates="contacts", cascade="none")
     notes = relationship("Note", secondary="contact_note", back_populates="contacts", cascade="none")
     orders = relationship("Order", secondary="contact_order", back_populates="contacts", cascade="none")
     subscriptions = relationship("Subscription", secondary="contact_subscription", back_populates="contacts", cascade="none")
-    credit_cards = relationship("CreditCard", back_populates="contact", cascade="all, delete-orphan")
+    credit_cards = relationship("CreditCard", back_populates="contact", cascade="save-update, merge, delete-orphan")
     affiliate = relationship("Affiliate", back_populates="contact", uselist=False, cascade="all, delete-orphan")
     direct_orders = relationship("Order", back_populates="contact", foreign_keys="Order.contact_id")
 
@@ -813,7 +818,7 @@ class Product(Base):
     # Relationships
     options = relationship("ProductOption", back_populates="product", cascade="all, delete-orphan")
     subscription_plans = relationship("SubscriptionPlan", back_populates="product", foreign_keys="SubscriptionPlan.product_id", primaryjoin="Product.id==SubscriptionPlan.product_id")
-    direct_orders = relationship("Order", back_populates="product", foreign_keys="Order.product_id")
+    direct_orders = relationship("Order", back_populates="product", foreign_keys="Order.product_id", primaryjoin="Product.id==Order.product_id", post_update=True)
     order_items = relationship("OrderItem", back_populates="product", foreign_keys="OrderItem.product_id")
     subscriptions = relationship("Subscription", secondary="product_subscription", back_populates="products", lazy="dynamic")
 
@@ -959,8 +964,8 @@ class Order(Base):
     creation_date = Column(DateTime(timezone=True))
     modification_date = Column(DateTime(timezone=True))
     order_date = Column(DateTime(timezone=True))
-    lead_affiliate_id = Column(Integer, ForeignKey('affiliates.id'))
-    sales_affiliate_id = Column(Integer, ForeignKey('affiliates.id'))
+    lead_affiliate_id = Column(Integer)
+    sales_affiliate_id = Column(Integer)
     total_paid = Column(Numeric(10, 2))
     total_due = Column(Numeric(10, 2))
     refund_total = Column(Numeric(10, 2))
@@ -968,7 +973,7 @@ class Order(Base):
     allow_paypal = Column(Boolean)
     invoice_number = Column(Integer)
     contact_id = Column(Integer, ForeignKey('contacts.id'))
-    product_id = Column(Integer, ForeignKey('products.id'))
+    product_id = Column(Integer)
     payment_gateway_id = Column(Integer, ForeignKey('payment_gateways.id'))
     subscription_plan_id = Column(Integer, ForeignKey('subscription_plans.id'))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -985,9 +990,9 @@ class Order(Base):
     subscription_plan = relationship("SubscriptionPlan", back_populates="orders", foreign_keys=[subscription_plan_id])
     payment_gateway = relationship("PaymentGateway", back_populates="orders", foreign_keys=[payment_gateway_id])
     contact = relationship("Contact", foreign_keys=[contact_id], back_populates="direct_orders")
-    product = relationship("Product", foreign_keys=[product_id], back_populates="direct_orders")
-    lead_affiliate = relationship("Affiliate", foreign_keys=[lead_affiliate_id], back_populates="lead_orders")
-    sales_affiliate = relationship("Affiliate", foreign_keys=[sales_affiliate_id], back_populates="sales_orders")
+    product = relationship("Product", foreign_keys=[product_id], back_populates="direct_orders", primaryjoin="Order.product_id==Product.id", post_update=True)
+    lead_affiliate = relationship("Affiliate", foreign_keys=[lead_affiliate_id], back_populates="lead_orders", primaryjoin="Order.lead_affiliate_id==Affiliate.id", post_update=True)
+    sales_affiliate = relationship("Affiliate", foreign_keys=[sales_affiliate_id], back_populates="sales_orders", primaryjoin="Order.sales_affiliate_id==Affiliate.id", post_update=True)
 
     def __repr__(self):
         return f"<Order(id={self.id}, title='{self.title}', total={self.total}, status='{self.status}')>"

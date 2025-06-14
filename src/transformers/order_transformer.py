@@ -1,9 +1,9 @@
 from datetime import datetime
 
 from sqlalchemy.orm import Session
-from src.utils.logger import get_logger
 
 from src.models.models import Contact, Order, OrderItem, Product
+from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -42,8 +42,8 @@ class OrderTransformer:
                 order.items = []
                 for item_data in data['items']:
                     # Create or update order item
-                    order_item = OrderItem(id=item_data[
-                        'id'], order_id=order.id, quantity=item_data.get('quantity'), price=item_data.get('price'), description=item_data.get('description'), subscription_plan_id=item_data.get('subscription_plan_id'))
+                    order_item = OrderItem(id=item_data['id'], order_id=order.id, quantity=item_data.get('quantity'), price=item_data.get('price'), description=item_data.get('description'),
+                                           subscription_plan_id=item_data.get('subscription_plan_id'))
                     order_item.order = order
                     db.merge(order_item)
 

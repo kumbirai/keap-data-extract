@@ -1,9 +1,9 @@
 from datetime import datetime
 
 from sqlalchemy.orm import Session
-from src.utils.logger import get_logger
 
 from src.models.models import Campaign, CampaignSequence
+from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 

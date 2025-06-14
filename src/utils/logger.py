@@ -1,5 +1,6 @@
 import logging
 
+
 def get_logger(name: str) -> logging.Logger:
     """Get a logger instance for the given name.
     
@@ -9,4 +10,4 @@ def get_logger(name: str) -> logging.Logger:
     Returns:
         A configured logger instance
     """
-    return logging.getLogger(name) 
+    return logging.getLogger(name)

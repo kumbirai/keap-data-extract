@@ -2,14 +2,15 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
+from src.transformers.transformers import (transform_account_profile, transform_affiliate, transform_affiliate_clawback, transform_affiliate_commission, transform_affiliate_payment,
+                                           transform_affiliate_program, transform_affiliate_redirect, transform_affiliate_summary, transform_applied_tag, transform_campaign,
+                                           transform_campaign_sequence, transform_contact_with_related, transform_custom_field, transform_list_response, transform_note, transform_opportunity,
+                                           transform_order_item, transform_order_payment, transform_order_transaction, transform_order_with_items, transform_product, transform_subscription,
+                                           transform_tag, transform_task)
 from .base_client import KeapBaseClient
 from .exceptions import KeapNotFoundError
 from ..models.models import (AccountProfile, Affiliate, AffiliateClawback, AffiliateCommission, AffiliatePayment, AffiliateProgram, AffiliateRedirect, AffiliateSummary, Campaign, CampaignSequence,
                              Contact, CustomField, Note, Opportunity, Order, OrderItem, OrderPayment, OrderTransaction, Product, Subscription, Tag, Task)
-from src.transformers.transformers import (transform_account_profile, transform_affiliate, transform_affiliate_clawback, transform_affiliate_commission, transform_affiliate_payment,
-                                           transform_affiliate_program, transform_affiliate_redirect, transform_affiliate_summary, transform_applied_tag, transform_campaign, transform_campaign_sequence,
-                                           transform_contact_with_related, transform_custom_field, transform_list_response, transform_note, transform_opportunity, transform_order_item, transform_order_payment,
-                                           transform_order_transaction, transform_order_with_items, transform_product, transform_subscription, transform_tag, transform_task)
 
 logger = logging.getLogger(__name__)
 
@@ -50,22 +51,22 @@ class KeapClient(KeapBaseClient):
         """
         # Start with additional_params as base
         params = additional_params.copy()
-        
+
         # Override with explicit parameters if they are not None
         if limit is not None:
             params['limit'] = limit
         if offset is not None:
             params['offset'] = offset
-            
+
         # Only include order parameter if it's explicitly provided
         # This is because some endpoints don't support ordering
         # and others have specific default ordering
         if order is not None:
             params['order'] = order
-        
+
         # Filter out None values
         params = {k: v for k, v in params.items() if v is not None}
-        
+
         return params
 
     def get_contacts(self, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Contact], Dict[str, Any]]:
@@ -87,7 +88,7 @@ class KeapClient(KeapBaseClient):
             # Set default order to 'id' for contacts
             if 'order' not in additional_params:
                 additional_params['order'] = 'id'
-                
+
             params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
             response = self.get('contacts', params)
             logger.debug(f"Raw contacts API response: {response}")
@@ -252,7 +253,8 @@ class KeapClient(KeapBaseClient):
 
         return all_custom_fields
 
-    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Opportunity], Dict[str, Any]]:
+    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[
+        List[Opportunity], Dict[str, Any]]:
         """Get a list of opportunities.
         
         Args:
@@ -268,13 +270,7 @@ class KeapClient(KeapBaseClient):
             - List of Opportunity objects
             - Dictionary containing pagination metadata
         """
-        params = self._prepare_params(
-            limit=limit, 
-            offset=offset, 
-            since=since,
-            contact_id=contact_id,
-            **additional_params
-        )
+        params = self._prepare_params(limit=limit, offset=offset, since=since, contact_id=contact_id, **additional_params)
         response = self.get('opportunities', params)
         return transform_list_response(response, transform_opportunity)
 
@@ -294,7 +290,8 @@ class KeapClient(KeapBaseClient):
             logger.error(f"Error fetching opportunity {opportunity_id}: {str(e)}")
             raise
 
-    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Product], Dict[str, Any]]:
+    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[
+        List[Product], Dict[str, Any]]:
         """Get a list of products.
         
         Args:
@@ -310,13 +307,7 @@ class KeapClient(KeapBaseClient):
             - List of Product objects
             - Dictionary containing pagination metadata
         """
-        params = self._prepare_params(
-            limit=limit, 
-            offset=offset, 
-            since=since,
-            subscription_only=subscription_only,
-            **additional_params
-        )
+        params = self._prepare_params(limit=limit, offset=offset, since=since, subscription_only=subscription_only, **additional_params)
         response = self.get('products', params)
         return transform_list_response(response, transform_product)
 
@@ -344,14 +335,8 @@ class KeapClient(KeapBaseClient):
         # Set default order to 'date_created' for orders
         if 'order' not in additional_params:
             additional_params['order'] = 'date_created'
-            
-        params = self._prepare_params(
-            limit=limit, 
-            offset=offset, 
-            since=since,
-            contact_id=contact_id,
-            **additional_params
-        )
+
+        params = self._prepare_params(limit=limit, offset=offset, since=since, contact_id=contact_id, **additional_params)
         response = self.get('orders', params)
         return transform_list_response(response, transform_order_with_items)
 
@@ -402,7 +387,7 @@ class KeapClient(KeapBaseClient):
             if not response:
                 logger.warning(f"No transactions found for order {order_id}")
                 return []
-            
+
             # Handle case where response is a string
             if isinstance(response, str):
                 try:
@@ -411,7 +396,7 @@ class KeapClient(KeapBaseClient):
                 except json.JSONDecodeError:
                     logger.error(f"Failed to parse transaction response as JSON: {response}")
                     return []
-            
+
             transactions = []
             # Handle case where response is a list
             if isinstance(response, list):
@@ -421,7 +406,7 @@ class KeapClient(KeapBaseClient):
                     transaction.orders = [Order(id=order_id)]
                     transactions.append(transaction)
                 return transactions
-            
+
             # Handle case where response is a dictionary with a transactions field
             if isinstance(response, dict) and 'transactions' in response:
                 for transaction_data in response['transactions']:
@@ -430,10 +415,10 @@ class KeapClient(KeapBaseClient):
                     transaction.orders = [Order(id=order_id)]
                     transactions.append(transaction)
                 return transactions
-            
+
             logger.warning(f"Unexpected response format for transactions: {response}")
             return []
-            
+
         except Exception as e:
             logger.error(f"Error getting transactions for order {order_id}: {str(e)}")
             return []
@@ -458,14 +443,8 @@ class KeapClient(KeapBaseClient):
             # Set default order to 'due_date' for tasks
             if 'order' not in additional_params:
                 additional_params['order'] = 'due_date'
-                
-            params = self._prepare_params(
-                limit=limit, 
-                offset=offset, 
-                since=since,
-                contact_id=contact_id,
-                **additional_params
-            )
+
+            params = self._prepare_params(limit=limit, offset=offset, since=since, contact_id=contact_id, **additional_params)
             response = self.get('tasks', params)
             return transform_list_response(response, transform_task)
         except Exception as e:
@@ -508,14 +487,8 @@ class KeapClient(KeapBaseClient):
             # Set default order to 'date_created' for notes
             if 'order' not in additional_params:
                 additional_params['order'] = 'date_created'
-                
-            params = self._prepare_params(
-                limit=limit, 
-                offset=offset, 
-                since=since,
-                contact_id=contact_id,
-                **additional_params
-            )
+
+            params = self._prepare_params(limit=limit, offset=offset, since=since, contact_id=contact_id, **additional_params)
             response = self.get('notes', params)
             return transform_list_response(response, transform_note)
         except Exception as e:
@@ -553,12 +526,7 @@ class KeapClient(KeapBaseClient):
             - List of Campaign objects
             - Dictionary containing pagination metadata
         """
-        params = self._prepare_params(
-            limit=limit, 
-            offset=offset, 
-            since=since,
-            **additional_params
-        )
+        params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
         response = self.get('campaigns', params)
         return transform_list_response(response, transform_campaign)
 
@@ -576,7 +544,8 @@ class KeapClient(KeapBaseClient):
             logger.warning(f"No sequences found for campaign {campaign_id}")
             return []
 
-    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Subscription], Dict[str, Any]]:
+    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[
+        List[Subscription], Dict[str, Any]]:
         """Get a list of subscriptions.
         
         Args:
@@ -592,13 +561,7 @@ class KeapClient(KeapBaseClient):
             - List of Subscription objects
             - Dictionary containing pagination metadata
         """
-        params = self._prepare_params(
-            limit=limit, 
-            offset=offset, 
-            since=since,
-            contact_id=contact_id,
-            **additional_params
-        )
+        params = self._prepare_params(limit=limit, offset=offset, since=since, contact_id=contact_id, **additional_params)
         response = self.get('subscriptions', params)
         return transform_list_response(response, transform_subscription)
 
@@ -627,12 +590,7 @@ class KeapClient(KeapBaseClient):
             - List of Affiliate objects
             - Dictionary containing pagination metadata
         """
-        params = self._prepare_params(
-            limit=limit, 
-            offset=offset, 
-            since=since,
-            **additional_params
-        )
+        params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
         response = self.get('affiliates', params)
         return transform_list_response(response, transform_affiliate)
 
@@ -656,12 +614,7 @@ class KeapClient(KeapBaseClient):
             - List of AffiliateCommission objects
             - Dictionary containing pagination metadata
         """
-        params = self._prepare_params(
-            limit=limit, 
-            offset=offset, 
-            since=since,
-            **additional_params
-        )
+        params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
         response = self.get(f'affiliates/{affiliate_id}/commissions', params)
         return transform_list_response(response, transform_affiliate_commission)
 
@@ -680,12 +633,7 @@ class KeapClient(KeapBaseClient):
             - List of AffiliateProgram objects
             - Dictionary containing pagination metadata
         """
-        params = self._prepare_params(
-            limit=limit, 
-            offset=offset, 
-            since=since,
-            **additional_params
-        )
+        params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
         response = self.get(f'affiliates/{affiliate_id}/programs', params)
         return transform_list_response(response, transform_affiliate_program)
 
@@ -704,12 +652,7 @@ class KeapClient(KeapBaseClient):
             - List of AffiliateRedirect objects
             - Dictionary containing pagination metadata
         """
-        params = self._prepare_params(
-            limit=limit, 
-            offset=offset, 
-            since=since,
-            **additional_params
-        )
+        params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
         response = self.get(f'affiliates/{affiliate_id}/redirects', params)
         return transform_list_response(response, transform_affiliate_redirect)
 
@@ -733,12 +676,7 @@ class KeapClient(KeapBaseClient):
             - List of AffiliateClawback objects
             - Dictionary containing pagination metadata
         """
-        params = self._prepare_params(
-            limit=limit, 
-            offset=offset, 
-            since=since,
-            **additional_params
-        )
+        params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
         response = self.get(f'affiliates/{affiliate_id}/clawbacks', params)
         return transform_list_response(response, transform_affiliate_clawback)
 
@@ -757,12 +695,7 @@ class KeapClient(KeapBaseClient):
             - List of AffiliatePayment objects
             - Dictionary containing pagination metadata
         """
-        params = self._prepare_params(
-            limit=limit, 
-            offset=offset, 
-            since=since,
-            **additional_params
-        )
+        params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
         response = self.get(f'affiliates/{affiliate_id}/payments', params)
         return transform_list_response(response, transform_affiliate_payment)
 
@@ -781,12 +714,7 @@ class KeapClient(KeapBaseClient):
             - List of Tag objects
             - Dictionary containing pagination metadata
         """
-        params = self._prepare_params(
-            limit=limit, 
-            offset=offset, 
-            since=since,
-            **additional_params
-        )
+        params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
         response = self.get(f'contacts/{contact_id}/tags', params)
         # Use a different transformer for the applied tags response
         items = [transform_applied_tag(tag_data) for tag_data in response.get('tags', [])]
@@ -809,12 +737,7 @@ class KeapClient(KeapBaseClient):
             - Dictionary containing pagination metadata
         """
         try:
-            params = self._prepare_params(
-                limit=limit, 
-                offset=offset, 
-                since=since,
-                **additional_params
-            )
+            params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
             endpoint = f"contacts/{contact_id}/creditCards"
             response = self._make_request('GET', endpoint, params=params)
 

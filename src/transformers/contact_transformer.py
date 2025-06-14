@@ -1,11 +1,12 @@
 from datetime import datetime
 
 from sqlalchemy.orm import Session
-from src.utils.logger import get_logger
 
 from src.models.models import (ContactAddress, Contact, ContactCustomFieldValue, EmailAddress, FaxNumber, Note, Opportunity, Order, PhoneNumber, Subscription, Tag, Task)
+from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
 
 class ContactTransformer:
     @staticmethod
@@ -34,16 +35,8 @@ class ContactTransformer:
                 # Clear existing address relationships
                 contact.addresses = []
                 for addr_data in data['addresses']:
-                    address = ContactAddress(
-                        id=addr_data['id'],
-                        field=addr_data.get('type'),
-                        line1=addr_data.get('line1'),
-                        line2=addr_data.get('line2'),
-                        locality=addr_data.get('city'),
-                        region=addr_data.get('state'),
-                        postal_code=addr_data.get('postal_code'),
-                        country_code=addr_data.get('country')
-                    )
+                    address = ContactAddress(id=addr_data['id'], field=addr_data.get('type'), line1=addr_data.get('line1'), line2=addr_data.get('line2'), locality=addr_data.get('city'),
+                                             region=addr_data.get('state'), postal_code=addr_data.get('postal_code'), country_code=addr_data.get('country'))
                     address.contact = contact
                     db.merge(address)
                     contact.addresses.append(address)
@@ -135,8 +128,8 @@ class ContactTransformer:
                 # Clear existing order relationships
                 contact.orders = []
                 for order_data in data['orders']:
-                    order = Order(id=order_data[
-                        'id'], order_number=order_data.get('order_number'), order_date=order_data.get('order_date'), total=order_data.get('total'), status=order_data.get('status'))
+                    order = Order(id=order_data['id'], order_number=order_data.get('order_number'), order_date=order_data.get('order_date'), total=order_data.get('total'),
+                                  status=order_data.get('status'))
                     order.contact = contact
                     db.merge(order)
                     contact.orders.append(order)

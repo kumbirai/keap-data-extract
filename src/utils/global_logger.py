@@ -6,6 +6,7 @@ from .error_logger import ErrorLogger
 # Global logger instances
 _error_logger: Optional[ErrorLogger] = None
 
+
 def get_error_logger() -> ErrorLogger:
     """Get the global error logger instance.
     
@@ -17,8 +18,9 @@ def get_error_logger() -> ErrorLogger:
         _error_logger = ErrorLogger()
     return _error_logger
 
+
 def initialize_loggers() -> None:
     """Initialize all global loggers."""
     global _error_logger
     _error_logger = ErrorLogger()
-    logging.info("Global loggers initialized") 
+    logging.info("Global loggers initialized")
