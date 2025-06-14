@@ -65,6 +65,32 @@ DB_USER=postgres        # Database username
 DB_PASSWORD=password    # Database password
 ```
 
+## Building Executables
+
+To create standalone executables for your platform:
+
+1. Ensure all dependencies are installed:
+```bash
+pip install -r requirements.txt
+```
+
+2. Build the executable using PyInstaller:
+```bash
+# For Windows
+pyinstaller keap_data_extract.spec
+
+# For macOS/Linux
+pyinstaller keap_data_extract.spec
+```
+
+The executable will be created in the `dist` directory. The spec file is configured to:
+- Include all necessary dependencies
+- Package all source files
+- Create a single-file executable
+- Handle all required Python modules
+
+Note: Make sure to copy your `.env` file to the same directory as the executable when deploying.
+
 ## Project Structure
 
 ```
