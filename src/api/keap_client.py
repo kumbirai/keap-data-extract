@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class KeapClient(KeapBaseClient):
+    # Core/Utility Methods
     def _parse_next_url(self, next_url: Optional[str]) -> Optional[int]:
         """Parse the offset from a next URL.
         
@@ -69,6 +70,7 @@ class KeapClient(KeapBaseClient):
 
         return params
 
+    # Contact Related Methods
     def get_contacts(self, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Contact], Dict[str, Any]]:
         """Get a list of contacts.
         
@@ -124,10 +126,20 @@ class KeapClient(KeapBaseClient):
         logger.debug(f"Raw contact API response: {response}")
         return transform_contact_with_related(response)
 
-    def get_tags(self, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[Tag], Dict[str, Any]]:
-        """Get a list of tags.
+    def get_contact_model(self) -> Dict[str, Any]:
+        """Get the contact model definition from the API.
+        
+        Returns:
+            Dictionary containing the contact model definition
+        """
+        response = self.get('contacts/model')
+        return response
+
+    def get_contact_tags(self, contact_id: int, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[Tag], Dict[str, Any]]:
+        """Get a list of tags applied to a specific contact.
         
         Args:
+            contact_id: The ID of the contact to get tags for
             limit: Maximum number of tags to return
             offset: Offset for pagination
             since: Optional timestamp to get tags modified since
@@ -138,30 +150,63 @@ class KeapClient(KeapBaseClient):
             - List of Tag objects
             - Dictionary containing pagination metadata
         """
+        params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
+        response = self.get(f'contacts/{contact_id}/tags', params)
+        # Use a different transformer for the applied tags response
+        items = [transform_applied_tag(tag_data) for tag_data in response.get('tags', [])]
+        pagination = {'next': None, 'count': len(items), 'total': len(items)}
+        return items, pagination
+
+    def get_contact_credit_cards(self, contact_id: int, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """Get credit cards for a specific contact.
+        
+        Args:
+            contact_id: The ID of the contact
+            limit: Maximum number of credit cards to return
+            offset: Offset for pagination
+            since: Optional timestamp to get credit cards modified since
+            additional_params: Additional parameters to pass to the API
+            
+        Returns:
+            Tuple containing:
+            - List of credit card dictionaries
+            - Dictionary containing pagination metadata
+        """
         try:
             params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
-            response = self.get('tags', params)
-            logger.debug(f"Raw tags API response: {response}")
+            endpoint = f"contacts/{contact_id}/creditCards"
+            response = self._make_request('GET', endpoint, params=params)
 
-            if not response:
-                logger.warning("Empty response received from tags API")
-                return [], {'next': None, 'previous': None, 'count': 0, 'limit': limit, 'offset': offset}
+            # The API returns a list directly, not wrapped in an object
+            if isinstance(response, list):
+                items = response
+            # If it's wrapped in an object, try to get the creditCards field
+            elif isinstance(response, dict):
+                items = response.get('creditCards', [])
+            else:
+                logger.warning(f"Unexpected response format for credit cards: {response}")
+                items = []
 
-            return transform_list_response(response, transform_tag)
+            # Transform each credit card item
+            transformed_items = []
+            for item in items:
+                try:
+                    # Add contact_id to each credit card item
+                    if isinstance(item, dict):
+                        item['contact_id'] = contact_id
+                        transformed_items.append(item)
+                except Exception as e:
+                    logger.error(f"Error transforming credit card item: {str(e)}")
+                    continue
+
+            pagination = {'next': None, 'count': len(transformed_items), 'total': len(transformed_items)}
+            return transformed_items, pagination
 
         except Exception as e:
-            logger.error(f"Error fetching tags: {str(e)}")
-            return [], {'next': None, 'previous': None, 'count': 0, 'limit': limit, 'offset': offset}
+            logger.error(f"Error fetching credit cards for contact {contact_id}: {str(e)}")
+            return [], {'next': None, 'count': 0, 'total': 0}
 
-    def get_contact_model(self) -> Dict[str, Any]:
-        """Get the contact model definition from the API.
-        
-        Returns:
-            Dictionary containing the contact model definition
-        """
-        response = self.get('contacts/model')
-        return response
-
+    # Custom Fields Methods
     def get_custom_fields(self, entity_type: str = 'contacts', **additional_params) -> Tuple[List[CustomField], Dict[str, Any]]:
         """Get all custom fields from the specified entity model.
         
@@ -253,8 +298,8 @@ class KeapClient(KeapBaseClient):
 
         return all_custom_fields
 
-    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[
-        List[Opportunity], Dict[str, Any]]:
+    # Opportunity Related Methods
+    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Opportunity], Dict[str, Any]]:
         """Get a list of opportunities.
         
         Args:
@@ -290,8 +335,8 @@ class KeapClient(KeapBaseClient):
             logger.error(f"Error fetching opportunity {opportunity_id}: {str(e)}")
             raise
 
-    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[
-        List[Product], Dict[str, Any]]:
+    # Product Related Methods
+    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Product], Dict[str, Any]]:
         """Get a list of products.
         
         Args:
@@ -316,6 +361,7 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'products/{product_id}')
         return transform_product(response)
 
+    # Order Related Methods
     def get_orders(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Order], Dict[str, Any]]:
         """Get a list of orders.
         
@@ -423,6 +469,7 @@ class KeapClient(KeapBaseClient):
             logger.error(f"Error getting transactions for order {order_id}: {str(e)}")
             return []
 
+    # Task Related Methods
     def get_tasks(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Task], Dict[str, Any]]:
         """Get a list of tasks.
         
@@ -467,6 +514,7 @@ class KeapClient(KeapBaseClient):
             logger.error(f"Error fetching task {task_id}: {str(e)}")
             raise
 
+    # Note Related Methods
     def get_notes(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Note], Dict[str, Any]]:
         """Get a list of notes.
         
@@ -511,6 +559,7 @@ class KeapClient(KeapBaseClient):
             logger.error(f"Error fetching note {note_id}: {str(e)}")
             raise
 
+    # Campaign Related Methods
     def get_campaigns(self, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Campaign], Dict[str, Any]]:
         """Get a list of campaigns.
         
@@ -544,8 +593,8 @@ class KeapClient(KeapBaseClient):
             logger.warning(f"No sequences found for campaign {campaign_id}")
             return []
 
-    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[
-        List[Subscription], Dict[str, Any]]:
+    # Subscription Related Methods
+    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Subscription], Dict[str, Any]]:
         """Get a list of subscriptions.
         
         Args:
@@ -565,16 +614,13 @@ class KeapClient(KeapBaseClient):
         response = self.get('subscriptions', params)
         return transform_list_response(response, transform_subscription)
 
-    def get_subscription(self, subscription_id: int) -> Subscription:
-        """Get a single subscription by ID."""
-        response = self.get(f'subscriptions/{subscription_id}')
-        return transform_subscription(response)
-
+    # Account Related Methods
     def get_account_profile(self) -> AccountProfile:
         """Get the account profile."""
         response = self.get('account/profile')
         return transform_account_profile(response)
 
+    # Affiliate Related Methods
     def get_affiliates(self, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Affiliate], Dict[str, Any]]:
         """Get a list of affiliates.
         
@@ -699,11 +745,11 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'affiliates/{affiliate_id}/payments', params)
         return transform_list_response(response, transform_affiliate_payment)
 
-    def get_contact_tags(self, contact_id: int, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[Tag], Dict[str, Any]]:
-        """Get a list of tags applied to a specific contact.
+    # Tag Related Methods
+    def get_tags(self, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[Tag], Dict[str, Any]]:
+        """Get a list of tags.
         
         Args:
-            contact_id: The ID of the contact to get tags for
             limit: Maximum number of tags to return
             offset: Offset for pagination
             since: Optional timestamp to get tags modified since
@@ -714,58 +760,17 @@ class KeapClient(KeapBaseClient):
             - List of Tag objects
             - Dictionary containing pagination metadata
         """
-        params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
-        response = self.get(f'contacts/{contact_id}/tags', params)
-        # Use a different transformer for the applied tags response
-        items = [transform_applied_tag(tag_data) for tag_data in response.get('tags', [])]
-        pagination = {'next': None, 'count': len(items), 'total': len(items)}
-        return items, pagination
-
-    def get_contact_credit_cards(self, contact_id: int, limit: int = 50, offset: int = 0, since: Optional[str] = None, **additional_params) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-        """Get credit cards for a specific contact.
-        
-        Args:
-            contact_id: The ID of the contact
-            limit: Maximum number of credit cards to return
-            offset: Offset for pagination
-            since: Optional timestamp to get credit cards modified since
-            additional_params: Additional parameters to pass to the API
-            
-        Returns:
-            Tuple containing:
-            - List of credit card dictionaries
-            - Dictionary containing pagination metadata
-        """
         try:
             params = self._prepare_params(limit=limit, offset=offset, since=since, **additional_params)
-            endpoint = f"contacts/{contact_id}/creditCards"
-            response = self._make_request('GET', endpoint, params=params)
+            response = self.get('tags', params)
+            logger.debug(f"Raw tags API response: {response}")
 
-            # The API returns a list directly, not wrapped in an object
-            if isinstance(response, list):
-                items = response
-            # If it's wrapped in an object, try to get the creditCards field
-            elif isinstance(response, dict):
-                items = response.get('creditCards', [])
-            else:
-                logger.warning(f"Unexpected response format for credit cards: {response}")
-                items = []
+            if not response:
+                logger.warning("Empty response received from tags API")
+                return [], {'next': None, 'previous': None, 'count': 0, 'limit': limit, 'offset': offset}
 
-            # Transform each credit card item
-            transformed_items = []
-            for item in items:
-                try:
-                    # Add contact_id to each credit card item
-                    if isinstance(item, dict):
-                        item['contact_id'] = contact_id
-                        transformed_items.append(item)
-                except Exception as e:
-                    logger.error(f"Error transforming credit card item: {str(e)}")
-                    continue
-
-            pagination = {'next': None, 'count': len(transformed_items), 'total': len(transformed_items)}
-            return transformed_items, pagination
+            return transform_list_response(response, transform_tag)
 
         except Exception as e:
-            logger.error(f"Error fetching credit cards for contact {contact_id}: {str(e)}")
-            return [], {'next': None, 'count': 0, 'total': 0}
+            logger.error(f"Error fetching tags: {str(e)}")
+            return [], {'next': None, 'previous': None, 'count': 0, 'limit': limit, 'offset': offset}

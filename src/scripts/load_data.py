@@ -1735,19 +1735,19 @@ def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manag
             return total_records, success_count, failed_count
 
         try:
-            # Process items
+            # Process items directly from the list response
             for item in items:
                 total_records += 1
                 try:
                     logger.info(f"Processing subscription ID: {item.id}")
-                    success = load_subscription_by_id(client, db_session, item.id)
-                    if success:
-                        success_count += 1
-                    else:
-                        failed_count += 1
+                    # Use merge instead of add to handle both inserts and updates
+                    db_session.merge(item)
+                    db_session.commit()
+                    success_count += 1
                 except Exception as e:
                     failed_count += 1
                     log_error(error_logger, entity_type, item.id, e, {'plan_name': getattr(item, 'plan_name', None)})
+                    db_session.rollback()
                     continue
 
             # Mark as completed since we processed all items
@@ -1763,28 +1763,6 @@ def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manag
         raise
 
     return total_records, success_count, failed_count
-
-
-def load_subscription_by_id(client: KeapClient, db_session: Session, subscription_id: int) -> bool:
-    """Load a single subscription by ID from Keap API into database."""
-    try:
-        logger.info(f"Loading subscription ID: {subscription_id}")
-
-        # Get full subscription details
-        full_subscription = client.get_subscription(subscription_id)
-        logger.info(f"Retrieved full subscription details for ID: {subscription_id}")
-
-        # Use merge instead of add to handle both inserts and updates
-        db_session.merge(full_subscription)
-        db_session.commit()
-
-        logger.info(f"Successfully processed subscription ID: {subscription_id}")
-        return True
-
-    except Exception as e:
-        db_session.rollback()
-        logger.error(f"Error processing subscription ID {subscription_id}: {e}")
-        return False
 
 
 def main(update: bool = False, entity_type: str = None, entity_id: int = None):

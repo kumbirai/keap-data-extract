@@ -84,295 +84,6 @@ def safe_enum_convert(value: Any, enum_class: Type[enum.Enum], default: Optional
             return default
 
 
-def transform_contact(contact_data: Dict[str, Any]) -> Contact:
-    """Transform contact data from API to database model."""
-    email_status = contact_data.get('email_status')
-    if email_status:
-        email_status = safe_enum_convert(email_status, ContactEmailStatus)
-
-    source_type = contact_data.get('source_type')
-    if source_type:
-        source_type = safe_enum_convert(source_type, ContactSourceType)
-
-    # Helper function to safely parse datetime
-    def safe_parse_datetime(dt_str: Optional[str]) -> Optional[datetime]:
-        if not dt_str:
-            return None
-        try:
-            return parse_datetime(dt_str)
-        except (ValueError, TypeError) as e:
-            logger.warning(f"Error parsing datetime {dt_str}: {e}")
-            return None
-
-    return Contact(id=contact_data.get('id'), given_name=contact_data.get('given_name'), family_name=contact_data.get('family_name'), middle_name=contact_data.get('middle_name'),
-                   company_name=contact_data.get('company_name'), job_title=contact_data.get('job_title'), email_opted_in=contact_data.get('email_opted_in'), email_status=email_status,
-                   score_value=contact_data.get('score_value'), owner_id=contact_data.get('owner_id'), created_at=safe_parse_datetime(contact_data.get('created_at')),
-                   modified_at=safe_parse_datetime(contact_data.get('modified_at')), last_updated_utc_millis=contact_data.get('last_updated_utc_millis'),
-                   anniversary=safe_parse_datetime(contact_data.get('anniversary')), birthday=safe_parse_datetime(contact_data.get('birthday')), contact_type=contact_data.get('contact_type'),
-                   duplicate_option=contact_data.get('duplicate_option'), lead_source_id=contact_data.get('lead_source_id'), preferred_locale=contact_data.get('preferred_locale'),
-                   preferred_name=contact_data.get('preferred_name'), source_type=source_type, spouse_name=contact_data.get('spouse_name'), time_zone=contact_data.get('time_zone'),
-                   website=contact_data.get('website'), year_created=contact_data.get('year_created'))
-
-
-def transform_email_address(api_data: Dict[str, Any], contact_id: int) -> EmailAddress:
-    """Transform API email address data into an EmailAddress model instance."""
-    return EmailAddress(id=api_data.get('id'), email=api_data.get('email'), field=api_data.get('field'), type=api_data.get('type'), contact_id=contact_id)
-
-
-def transform_phone_number(api_data: Dict[str, Any], contact_id: int) -> PhoneNumber:
-    """Transform API phone number data into a PhoneNumber model instance."""
-    return PhoneNumber(id=api_data.get('id'), number=api_data.get('number'), field=api_data.get('field'), type=api_data.get('type'), contact_id=contact_id)
-
-
-def transform_contact_address(api_data: Dict[str, Any], contact_id: int) -> ContactAddress:
-    """Transform API address data into a ContactAddress model instance."""
-    return ContactAddress(id=api_data.get('id'), country_code=api_data.get('country_code'), field=api_data.get('field'), line1=api_data.get('line1'), line2=api_data.get('line2'),
-                          locality=api_data.get('locality'), postal_code=api_data.get('postal_code'), region=api_data.get('region'), zip_code=api_data.get('zip_code'),
-                          zip_four=api_data.get('zip_four'), contact_id=contact_id)
-
-
-def transform_tag(api_data: Dict[str, Any]) -> Optional[Tag]:
-    """Transform API tag data into a Tag model instance.
-    
-    Args:
-        api_data: Dictionary containing tag data from the API
-        
-    Returns:
-        Tag instance or None if api_data is empty
-    """
-    if not api_data:
-        return None
-
-    try:
-        # Create tag instance with required fields
-        tag = Tag(id=api_data.get('id'), name=api_data.get('name', ''),  # Ensure name is never None
-                  description=api_data.get('description'))
-
-        # Handle category data
-        category_data = api_data.get('category', {})
-        if category_data:
-            category = TagCategory()
-            category.id = category_data.get('id')
-            category.name = category_data.get('name')
-            tag.category = category
-            tag.category_id = category.id
-
-        # Handle created_at timestamp
-        created_at = api_data.get('created_at')
-        if created_at:
-            tag.created_at = safe_parse_datetime(created_at)
-        else:
-            tag.created_at = datetime.now(timezone.utc)
-
-        return tag
-
-    except Exception as e:
-        logger.error(f"Error transforming tag data: {str(e)}")
-        logger.debug(f"Problematic tag data: {api_data}")
-        return None
-
-
-def transform_custom_field(field_name: str, field_def: Dict[str, Any]) -> CustomField:
-    """Transform API custom field definition into a CustomField model instance."""
-    field_type = safe_enum_convert(field_def.get('type'), CustomFieldType)
-
-    return CustomField(id=field_def.get('id'), name=field_name, type=field_type, options=field_def.get('options'))
-
-
-def transform_custom_field_value(api_data: Dict[str, Any], entity_id: int, custom_field_id: int) -> ContactCustomFieldValue:
-    """Transform API custom field value data into a CustomFieldValue model instance."""
-    return ContactCustomFieldValue(id=api_data.get('id'), contact_id=entity_id, custom_field_id=custom_field_id, value=api_data.get('value'))
-
-
-def transform_opportunity(api_data: Dict[str, Any]) -> Opportunity:
-    """Transform opportunity data from API to Opportunity model."""
-    opportunity = Opportunity(id=api_data.get('id'), title=api_data.get('title'), stage=api_data.get('stage'),  # Now storing the entire stage object as JSON
-                              value=api_data.get('value'), probability=api_data.get('probability'), next_action_date=safe_parse_datetime(api_data.get('next_action_date')),
-                              next_action_notes=api_data.get('next_action_notes'), source_type=api_data.get('source_type'), source_id=api_data.get('source_id'),
-                              pipeline_id=api_data.get('pipeline_id'), pipeline_stage_id=api_data.get('pipeline_stage_id'), owner_id=api_data.get('owner_id'),
-                              last_updated_utc_millis=api_data.get('last_updated_utc_millis'))
-    return opportunity
-
-
-def transform_product(api_data: Dict[str, Any]) -> Product:
-    """Transform API product data into a Product model instance."""
-    try:
-        return Product(id=api_data.get('id'), sku=api_data.get('sku', ''), active=api_data.get('active', True), url=api_data.get('url'), product_name=api_data.get('product_name'),
-                       sub_category_id=api_data.get('sub_category_id', 0), product_desc=api_data.get('product_desc'), product_price=api_data.get('product_price'),
-                       product_short_desc=api_data.get('product_short_desc'), subscription_only=api_data.get('subscription_only', False), status=api_data.get('status', 1))
-    except Exception as e:
-        logger.error(f"Error transforming product: {str(e)}")
-        logger.debug(f"Problematic product data: {api_data}")
-        raise
-
-
-def transform_payment_gateway(api_data: Dict[str, Any]) -> PaymentGateway:
-    """Transform API payment gateway data into PaymentGateway model instance."""
-    return PaymentGateway(id=api_data.get('id'), name=api_data.get('name'), type=api_data.get('type'), is_active=api_data.get('is_active', True), credentials=api_data.get('credentials'),
-                          settings=api_data.get('settings'), created_at=safe_parse_datetime(api_data.get('created_at')), modified_at=safe_parse_datetime(api_data.get('modified_at')))
-
-
-def transform_shipping_information(api_data: Dict[str, Any], order_id: int) -> ShippingInformation:
-    """Transform shipping information data from API to database model."""
-    return ShippingInformation(id=api_data['id'], order_id=order_id, first_name=api_data.get('first_name'), middle_name=api_data.get('middle_name'), last_name=api_data.get('last_name'),
-                               company=api_data.get('company'), phone=api_data.get('phone'), street1=api_data.get('street1'), street2=api_data.get('street2'), city=api_data.get('city'),
-                               state=api_data.get('state'), zip=api_data.get('zip'), country=api_data.get('country'), invoice_to_company=api_data.get('invoiceToCompany', False))
-
-
-def transform_order(api_data: Dict[str, Any]) -> Order:
-    """Transform order data from API to database model."""
-    status = safe_enum_convert(api_data.get('status'), OrderStatus)
-    source_type = safe_enum_convert(api_data.get('source_type'), OrderSourceType)
-
-    # Handle product_id being '0' or 0
-    product_id = api_data.get('product_id')
-    if product_id in ('0', 0):
-        product_id = None
-
-    return Order(id=api_data.get('id'), title=api_data.get('title'), status=status, recurring=api_data.get('recurring'), total=api_data.get('total'), notes=api_data.get('notes'),
-                 terms=api_data.get('terms'), order_type=api_data.get('order_type'), source_type=source_type, creation_date=safe_parse_datetime(api_data.get('creation_date')),
-                 modification_date=safe_parse_datetime(api_data.get('modification_date')), order_date=safe_parse_datetime(api_data.get('order_date')),
-                 lead_affiliate_id=api_data.get('lead_affiliate_id'), sales_affiliate_id=api_data.get('sales_affiliate_id'), total_paid=api_data.get('total_paid'), total_due=api_data.get('total_due'),
-                 refund_total=api_data.get('refund_total'), allow_payment=api_data.get('allow_payment'), allow_paypal=api_data.get('allow_paypal'), invoice_number=api_data.get('invoice_number'),
-                 contact_id=api_data.get('contact_id'), product_id=product_id, payment_gateway_id=api_data.get('payment_gateway_id'), subscription_plan_id=api_data.get('subscription_plan_id'))
-
-
-def transform_order_item(api_data: Dict[str, Any]) -> OrderItem:
-    """Transform order item data from API to database model."""
-    return OrderItem(id=api_data['id'], job_recurring_id=api_data.get('jobRecurringId'), name=api_data.get('name'), description=api_data.get('description'), type=api_data.get('type'),
-                     notes=api_data.get('notes'), quantity=api_data.get('quantity'), cost=api_data.get('cost'), price=api_data.get('price'), discount=api_data.get('discount'),
-                     special_id=api_data.get('specialId'), special_amount=api_data.get('specialAmount'), special_pct_or_amt=api_data.get('specialPctOrAmt'),
-                     product_id=api_data.get('product', {}).get('id') if api_data.get('product') else None,
-                     subscription_plan_id=api_data.get('subscriptionPlan', {}).get('id') if api_data.get('subscriptionPlan') else None)
-
-
-def transform_order_payment(api_data: Dict[str, Any]) -> OrderPayment:
-    """Transform API order payment data into an OrderPayment model instance."""
-    if not isinstance(api_data, dict):
-        api_data = api_data.__dict__
-
-    return OrderPayment(id=api_data.get('id'), order_id=api_data.get('order_id'), amount=api_data.get('amount'), note=api_data.get('note'), invoice_id=api_data.get('invoice_id'),
-                        payment_id=api_data.get('payment_id'), pay_date=safe_parse_datetime(api_data.get('pay_date')), pay_status=api_data.get('pay_status'),
-                        last_updated=safe_parse_datetime(api_data.get('last_updated')), skip_commission=api_data.get('skip_commission', False),
-                        refund_invoice_payment_id=api_data.get('refund_invoice_payment_id', 0), created_at=safe_parse_datetime(api_data.get('created_at')),
-                        modified_at=safe_parse_datetime(api_data.get('modified_at')))
-
-
-def transform_order_transaction(api_data: Dict[str, Any]) -> OrderTransaction:
-    """Transform API order transaction data into OrderTransaction model instance."""
-    return OrderTransaction(id=api_data.get('id'), test=api_data.get('test', False), amount=api_data.get('amount'), currency=api_data.get('currency'), gateway=api_data.get('gateway'),
-                            payment_date=safe_parse_datetime(api_data.get('paymentDate')), type=api_data.get('type'), status=api_data.get('status'), errors=api_data.get('errors'),
-                            contact_id=api_data.get('contact_id'), transaction_date=safe_parse_datetime(api_data.get('transaction_date')), gateway_account_name=api_data.get('gateway_account_name'),
-                            order_ids=api_data.get('order_ids'), collection_method=api_data.get('collection_method'), payment_id=api_data.get('payment_id'), created_at=datetime.now(timezone.utc),
-                            modified_at=datetime.now(timezone.utc))
-
-
-def transform_note(api_data: Dict[str, Any]) -> Note:
-    """Transform API data to Note model."""
-    note_type = safe_enum_convert(api_data.get('type'), NoteType)
-    # Convert enum to string value if it exists
-    type_value = note_type.value if note_type else None
-
-    return Note(id=api_data.get('id'), contact_id=api_data.get('contact_id'), title=api_data.get('title'), body=api_data.get('body'), type=type_value,  # Use the string value instead of enum
-                created_at=safe_parse_datetime(api_data.get('created_at')), modified_at=safe_parse_datetime(api_data.get('modified_at')))
-
-
-def transform_task(api_data: Dict[str, Any]) -> Task:
-    """Transform task data from API to database model."""
-    status = safe_enum_convert(api_data.get('status'), TaskStatus)
-    priority = safe_enum_convert(api_data.get('priority'), TaskPriority)
-
-    return Task(id=api_data.get('id'), contact_id=api_data.get('contact_id'), title=api_data.get('title'), notes=api_data.get('notes'), priority=priority, status=status, type=api_data.get('type'),
-                due_date=safe_parse_datetime(api_data.get('due_date')))
-
-
-def transform_campaign(api_data: Dict[str, Any]) -> Campaign:
-    """Transform campaign data from API to database model."""
-    status = safe_enum_convert(api_data.get('status'), CampaignStatus)
-
-    return Campaign(id=api_data.get('id'), name=api_data.get('name'), description=api_data.get('description'), status=status, created_at=safe_parse_datetime(api_data.get('created_at')),
-                    modified_at=safe_parse_datetime(api_data.get('modified_at')))
-
-
-def transform_campaign_sequence(api_data: Dict[str, Any]) -> CampaignSequence:
-    """Transform API campaign sequence data into a CampaignSequence model instance."""
-    return CampaignSequence(id=api_data.get('id'), campaign_id=api_data.get('campaign_id'), name=api_data.get('name'), description=api_data.get('description'), status=api_data.get('status'),
-                            sequence_number=api_data.get('sequence_number'))
-
-
-def transform_subscription(api_data: Dict[str, Any]) -> Subscription:
-    """Transform subscription data from API to database model."""
-    status = safe_enum_convert(api_data.get('status'), SubscriptionStatus)
-
-    return Subscription(id=api_data.get('id'), product_id=api_data.get('product_id'), subscription_plan_id=api_data.get('subscription_plan_id'), status=status,
-                        next_bill_date=safe_parse_datetime(api_data.get('next_bill_date')), contact_id=api_data.get('contact_id'), payment_gateway_id=api_data.get('payment_gateway_id'),
-                        credit_card_id=api_data.get('credit_card_id'), start_date=safe_parse_datetime(api_data.get('start_date')), end_date=safe_parse_datetime(api_data.get('end_date')),
-                        billing_cycle=api_data.get('billing_cycle'), created_at=safe_parse_datetime(api_data.get('created_at')), modified_at=safe_parse_datetime(api_data.get('modified_at')))
-
-
-def transform_affiliate(api_data: Dict[str, Any]) -> Affiliate:
-    """Transform API affiliate data into an Affiliate model instance."""
-    status = safe_enum_convert(api_data.get('status'), AffiliateStatus)
-
-    return Affiliate(id=api_data.get('id'), code=api_data.get('code'), contact_id=api_data.get('contact_id'), name=api_data.get('name'), parent_id=api_data.get('parent_id'), status=status,
-                     notify_on_lead=api_data.get('notify_on_lead'), notify_on_sale=api_data.get('notify_on_sale'), track_leads_for=api_data.get('track_leads_for'))
-
-
-def transform_affiliate_commission(api_data: Dict[str, Any]) -> AffiliateCommission:
-    """Transform API affiliate commission data into an AffiliateCommission model instance."""
-    return AffiliateCommission(id=api_data.get('id'), affiliate_id=api_data.get('affiliate_id'), amount_earned=api_data.get('amount_earned'), contact_id=api_data.get('contact_id'),
-                               contact_first_name=api_data.get('contact_first_name'), contact_last_name=api_data.get('contact_last_name'), date_earned=safe_parse_datetime(api_data.get('date_earned')),
-                               description=api_data.get('description'), invoice_id=api_data.get('invoice_id'), product_name=api_data.get('product_name'),
-                               sales_affiliate_id=api_data.get('sales_affiliate_id'), sold_by_first_name=api_data.get('sold_by_first_name'), sold_by_last_name=api_data.get('sold_by_last_name'))
-
-
-def transform_affiliate_program(api_data: Dict[str, Any]) -> AffiliateProgram:
-    """Transform API affiliate program data into an AffiliateProgram model instance."""
-    return AffiliateProgram(id=api_data.get('id'), affiliate_id=api_data.get('affiliate_id'), name=api_data.get('name'), notes=api_data.get('notes'), priority=api_data.get('priority'))
-
-
-def transform_affiliate_redirect(api_data: Dict[str, Any]) -> AffiliateRedirect:
-    """Transform API affiliate redirect data into an AffiliateRedirect model instance."""
-    return AffiliateRedirect(id=api_data.get('id'), affiliate_id=api_data.get('affiliate_id'), local_url_code=api_data.get('local_url_code'), name=api_data.get('name'),
-                             redirect_url=api_data.get('redirect_url'))
-
-
-def transform_affiliate_summary(api_data: Dict[str, Any]) -> AffiliateSummary:
-    """Transform API affiliate summary data into an AffiliateSummary model instance."""
-    return AffiliateSummary(id=api_data.get('id'), affiliate_id=api_data.get('affiliate_id'), amount_earned=api_data.get('amount_earned'), balance=api_data.get('balance'),
-                            clawbacks=api_data.get('clawbacks'))
-
-
-def transform_affiliate_clawback(api_data: Dict[str, Any]) -> AffiliateClawback:
-    """Transform API affiliate clawback data into an AffiliateClawback model instance."""
-    return AffiliateClawback(id=api_data.get('id'), affiliate_id=api_data.get('affiliate_id'), amount=api_data.get('amount'), contact_id=api_data.get('contact_id'),
-                             date_earned=safe_parse_datetime(api_data.get('date_earned')), description=api_data.get('description'), family_name=api_data.get('family_name'),
-                             given_name=api_data.get('given_name'), invoice_id=api_data.get('invoice_id'), product_name=api_data.get('product_name'),
-                             sale_affiliate_id=api_data.get('sale_affiliate_id'), sold_by_family_name=api_data.get('sold_by_family_name'), sold_by_given_name=api_data.get('sold_by_given_name'),
-                             subscription_plan_name=api_data.get('subscription_plan_name'))
-
-
-def transform_affiliate_payment(api_data: Dict[str, Any]) -> AffiliatePayment:
-    """Transform API affiliate payment data into an AffiliatePayment model instance."""
-    return AffiliatePayment(id=api_data.get('id'), affiliate_id=api_data.get('affiliate_id'), amount=api_data.get('amount'), date=safe_parse_datetime(api_data.get('date')),
-                            notes=api_data.get('notes'), type=api_data.get('type'))
-
-
-def transform_fax_number(api_data: Dict[str, Any], contact_id: int) -> FaxNumber:
-    """Transform API fax number data into a FaxNumber model instance."""
-    return FaxNumber(id=api_data.get('id'), number=api_data.get('number'), field=api_data.get('field'), type=api_data.get('type'), contact_id=contact_id)
-
-
-def transform_business_goal(api_data: Dict[str, Any], account_profile_id: int) -> BusinessGoal:
-    """Transform API business goal data into a BusinessGoal model instance."""
-    return BusinessGoal(id=api_data.get('id'), account_profile_id=account_profile_id, goal=api_data.get('goal'))
-
-
-def transform_affiliate_redirect_program(api_data: Dict[str, Any], affiliate_redirect_id: int) -> AffiliateRedirectProgram:
-    """Transform API affiliate redirect program data into an AffiliateRedirectProgram model instance."""
-    return AffiliateRedirectProgram(id=api_data.get('id'), affiliate_redirect_id=affiliate_redirect_id, program_id=api_data.get('program_id'))
-
-
 def transform_list_response(api_data: Dict[str, Any], transformer_func: Callable) -> Tuple[List[Any], Dict[str, Any]]:
     """Transform a list response from the API into a list of model instances.
     
@@ -442,6 +153,36 @@ def transform_list_response(api_data: Dict[str, Any], transformer_func: Callable
         logger.error(f"Error in transform_list_response: {str(e)}")
         logger.debug(f"Problematic API data: {api_data}")
         return [], {}
+
+
+def transform_contact(contact_data: Dict[str, Any]) -> Contact:
+    """Transform contact data from API to database model."""
+    email_status = contact_data.get('email_status')
+    if email_status:
+        email_status = safe_enum_convert(email_status, ContactEmailStatus)
+
+    source_type = contact_data.get('source_type')
+    if source_type:
+        source_type = safe_enum_convert(source_type, ContactSourceType)
+
+    # Helper function to safely parse datetime
+    def safe_parse_datetime(dt_str: Optional[str]) -> Optional[datetime]:
+        if not dt_str:
+            return None
+        try:
+            return parse_datetime(dt_str)
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Error parsing datetime {dt_str}: {e}")
+            return None
+
+    return Contact(id=contact_data.get('id'), given_name=contact_data.get('given_name'), family_name=contact_data.get('family_name'), middle_name=contact_data.get('middle_name'),
+                   company_name=contact_data.get('company_name'), job_title=contact_data.get('job_title'), email_opted_in=contact_data.get('email_opted_in'), email_status=email_status,
+                   score_value=contact_data.get('score_value'), owner_id=contact_data.get('owner_id'), created_at=safe_parse_datetime(contact_data.get('created_at')),
+                   modified_at=safe_parse_datetime(contact_data.get('modified_at')), last_updated_utc_millis=contact_data.get('last_updated_utc_millis'),
+                   anniversary=safe_parse_datetime(contact_data.get('anniversary')), birthday=safe_parse_datetime(contact_data.get('birthday')), contact_type=contact_data.get('contact_type'),
+                   duplicate_option=contact_data.get('duplicate_option'), lead_source_id=contact_data.get('lead_source_id'), preferred_locale=contact_data.get('preferred_locale'),
+                   preferred_name=contact_data.get('preferred_name'), source_type=source_type, spouse_name=contact_data.get('spouse_name'), time_zone=contact_data.get('time_zone'),
+                   website=contact_data.get('website'), year_created=contact_data.get('year_created'))
 
 
 def transform_contact_with_related(api_data: Dict[str, Any], db_session=None) -> Contact:
@@ -615,55 +356,26 @@ def transform_order_with_items(api_data: Dict[str, Any]) -> Order:
     return order
 
 
-def transform_account_profile(api_data: Dict[str, Any]) -> AccountProfile:
-    """Transform API account profile data to AccountProfile model instance."""
-    profile = AccountProfile(id=api_data.get('id'), address_id=api_data.get('address_id'), business_primary_color=api_data.get('business_primary_color'),
-                             business_secondary_color=api_data.get('business_secondary_color'), business_type=api_data.get('business_type'), currency_code=api_data.get('currency_code'),
-                             email=api_data.get('email'), language_tag=api_data.get('language_tag'), logo_url=api_data.get('logo_url'), name=api_data.get('name'), phone=api_data.get('phone'),
-                             phone_ext=api_data.get('phone_ext'), time_zone=api_data.get('time_zone'), website=api_data.get('website'), created_at=safe_parse_datetime(api_data.get('created_at')),
-                             modified_at=safe_parse_datetime(api_data.get('modified_at')))
-
-    # Transform business goals
-    if 'business_goals' in api_data:
-        profile.business_goals = []
-        for goal in api_data['business_goals']:
-            try:
-                profile.business_goals.append(transform_business_goal(goal, profile.id))
-            except Exception as e:
-                logger.error(f"Error transforming business goal for profile {profile.id}: {str(e)}")
-                continue
-
-    return profile
+def transform_email_address(api_data: Dict[str, Any], contact_id: int) -> EmailAddress:
+    """Transform API email address data into an EmailAddress model instance."""
+    return EmailAddress(id=api_data.get('id'), email=api_data.get('email'), field=api_data.get('field'), type=api_data.get('type'), contact_id=contact_id)
 
 
-def transform_applied_tag(api_data: Dict[str, Any]) -> Optional[Tag]:
-    """Transform API applied tag data to Tag model instance."""
-    try:
-        if not isinstance(api_data, dict):
-            logger.error(f"Invalid applied tag data format: {type(api_data)}")
-            return None
+def transform_phone_number(api_data: Dict[str, Any], contact_id: int) -> PhoneNumber:
+    """Transform API phone number data into a PhoneNumber model instance."""
+    return PhoneNumber(id=api_data.get('id'), number=api_data.get('number'), field=api_data.get('field'), type=api_data.get('type'), contact_id=contact_id)
 
-        # Handle both nested and direct tag data formats
-        tag_data = api_data.get('tag', api_data)
-        if not isinstance(tag_data, dict):
-            logger.error(f"Invalid tag data in applied tag: {type(tag_data)}")
-            return None
 
-        # Create tag instance
-        tag = Tag(id=tag_data.get('id'), name=tag_data.get('name'), description=tag_data.get('description'), category=tag_data.get('category'))
+def transform_contact_address(api_data: Dict[str, Any], contact_id: int) -> ContactAddress:
+    """Transform API address data into a ContactAddress model instance."""
+    return ContactAddress(id=api_data.get('id'), country_code=api_data.get('country_code'), field=api_data.get('field'), line1=api_data.get('line1'), line2=api_data.get('line2'),
+                          locality=api_data.get('locality'), postal_code=api_data.get('postal_code'), region=api_data.get('region'), zip_code=api_data.get('zip_code'),
+                          zip_four=api_data.get('zip_four'), contact_id=contact_id)
 
-        # Handle created_at timestamp
-        created_at = api_data.get('created_at')
-        if created_at:
-            tag.created_at = safe_parse_datetime(created_at)
-        else:
-            tag.created_at = datetime.now(timezone.utc)
 
-        return tag
-
-    except Exception as e:
-        logger.error(f"Error transforming applied tag data: {e}")
-        return None
+def transform_fax_number(api_data: Dict[str, Any], contact_id: int) -> FaxNumber:
+    """Transform API fax number data into a FaxNumber model instance."""
+    return FaxNumber(id=api_data.get('id'), number=api_data.get('number'), field=api_data.get('field'), type=api_data.get('type'), contact_id=contact_id)
 
 
 def transform_credit_card(api_data: Dict[str, Any]) -> CreditCard:
@@ -697,3 +409,278 @@ def transform_credit_card(api_data: Dict[str, Any]) -> CreditCard:
         logger.error(f"Error transforming credit card: {str(e)}")
         logger.debug(f"Problematic credit card data: {api_data}")
         raise
+
+
+def transform_custom_field(field_name: str, field_def: Dict[str, Any]) -> CustomField:
+    """Transform API custom field definition into a CustomField model instance."""
+    field_type = safe_enum_convert(field_def.get('type'), CustomFieldType)
+
+    return CustomField(id=field_def.get('id'), name=field_name, type=field_type, options=field_def.get('options'))
+
+
+def transform_custom_field_value(api_data: Dict[str, Any], entity_id: int, custom_field_id: int) -> ContactCustomFieldValue:
+    """Transform API custom field value data into a CustomFieldValue model instance."""
+    return ContactCustomFieldValue(id=api_data.get('id'), contact_id=entity_id, custom_field_id=custom_field_id, value=api_data.get('value'))
+
+
+def transform_tag(api_data: Dict[str, Any]) -> Optional[Tag]:
+    """Transform API tag data into a Tag model instance.
+    
+    Args:
+        api_data: Dictionary containing tag data from the API
+        
+    Returns:
+        Tag instance or None if api_data is empty
+    """
+    if not api_data:
+        return None
+
+    try:
+        # Create tag instance with required fields
+        tag = Tag(id=api_data.get('id'), name=api_data.get('name', ''),  # Ensure name is never None
+                  description=api_data.get('description'))
+
+        # Handle category data
+        category_data = api_data.get('category', {})
+        if category_data:
+            category = TagCategory()
+            category.id = category_data.get('id')
+            category.name = category_data.get('name')
+            tag.category = category
+            tag.category_id = category.id
+
+        # Handle created_at timestamp
+        created_at = api_data.get('created_at')
+        if created_at:
+            tag.created_at = safe_parse_datetime(created_at)
+        else:
+            tag.created_at = datetime.now(timezone.utc)
+
+        return tag
+
+    except Exception as e:
+        logger.error(f"Error transforming tag data: {str(e)}")
+        logger.debug(f"Problematic tag data: {api_data}")
+        return None
+
+
+def transform_applied_tag(api_data: Dict[str, Any]) -> Optional[Tag]:
+    """Transform API applied tag data to Tag model instance."""
+    try:
+        if not isinstance(api_data, dict):
+            logger.error(f"Invalid applied tag data format: {type(api_data)}")
+            return None
+
+        # Handle both nested and direct tag data formats
+        tag_data = api_data.get('tag', api_data)
+        if not isinstance(tag_data, dict):
+            logger.error(f"Invalid tag data in applied tag: {type(tag_data)}")
+            return None
+
+        # Create tag instance
+        tag = Tag(id=tag_data.get('id'), name=tag_data.get('name'), description=tag_data.get('description'), category=tag_data.get('category'))
+
+        # Handle created_at timestamp
+        created_at = api_data.get('created_at')
+        if created_at:
+            tag.created_at = safe_parse_datetime(created_at)
+        else:
+            tag.created_at = datetime.now(timezone.utc)
+
+        return tag
+
+    except Exception as e:
+        logger.error(f"Error transforming applied tag data: {e}")
+        return None
+
+
+def transform_opportunity(api_data: Dict[str, Any]) -> Opportunity:
+    """Transform opportunity data from API to Opportunity model."""
+    opportunity = Opportunity(id=api_data.get('id'), title=api_data.get('title'), stage=api_data.get('stage'),  # Now storing the entire stage object as JSON
+                              value=api_data.get('value'), probability=api_data.get('probability'), next_action_date=safe_parse_datetime(api_data.get('next_action_date')),
+                              next_action_notes=api_data.get('next_action_notes'), source_type=api_data.get('source_type'), source_id=api_data.get('source_id'),
+                              pipeline_id=api_data.get('pipeline_id'), pipeline_stage_id=api_data.get('pipeline_stage_id'), owner_id=api_data.get('owner_id'),
+                              last_updated_utc_millis=api_data.get('last_updated_utc_millis'))
+    return opportunity
+
+
+def transform_product(api_data: Dict[str, Any]) -> Product:
+    """Transform API product data into a Product model instance."""
+    try:
+        return Product(id=api_data.get('id'), sku=api_data.get('sku', ''), active=api_data.get('active', True), url=api_data.get('url'), product_name=api_data.get('product_name'),
+                       sub_category_id=api_data.get('sub_category_id', 0), product_desc=api_data.get('product_desc'), product_price=api_data.get('product_price'),
+                       product_short_desc=api_data.get('product_short_desc'), subscription_only=api_data.get('subscription_only', False), status=api_data.get('status', 1))
+    except Exception as e:
+        logger.error(f"Error transforming product: {str(e)}")
+        logger.debug(f"Problematic product data: {api_data}")
+        raise
+
+
+def transform_order(api_data: Dict[str, Any]) -> Order:
+    """Transform order data from API to database model."""
+    status = safe_enum_convert(api_data.get('status'), OrderStatus)
+    source_type = safe_enum_convert(api_data.get('source_type'), OrderSourceType)
+
+    # Handle product_id being '0' or 0
+    product_id = api_data.get('product_id')
+    if product_id in ('0', 0):
+        product_id = None
+
+    return Order(id=api_data.get('id'), title=api_data.get('title'), status=status, recurring=api_data.get('recurring'), total=api_data.get('total'), notes=api_data.get('notes'),
+                 terms=api_data.get('terms'), order_type=api_data.get('order_type'), source_type=source_type, creation_date=safe_parse_datetime(api_data.get('creation_date')),
+                 modification_date=safe_parse_datetime(api_data.get('modification_date')), order_date=safe_parse_datetime(api_data.get('order_date')),
+                 lead_affiliate_id=api_data.get('lead_affiliate_id'), sales_affiliate_id=api_data.get('sales_affiliate_id'), total_paid=api_data.get('total_paid'), total_due=api_data.get('total_due'),
+                 refund_total=api_data.get('refund_total'), allow_payment=api_data.get('allow_payment'), allow_paypal=api_data.get('allow_paypal'), invoice_number=api_data.get('invoice_number'),
+                 contact_id=api_data.get('contact_id'), product_id=product_id, payment_gateway_id=api_data.get('payment_gateway_id'), subscription_plan_id=api_data.get('subscription_plan_id'))
+
+
+def transform_order_item(api_data: Dict[str, Any]) -> OrderItem:
+    """Transform order item data from API to database model."""
+    return OrderItem(id=api_data['id'], job_recurring_id=api_data.get('jobRecurringId'), name=api_data.get('name'), description=api_data.get('description'), type=api_data.get('type'),
+                     notes=api_data.get('notes'), quantity=api_data.get('quantity'), cost=api_data.get('cost'), price=api_data.get('price'), discount=api_data.get('discount'),
+                     special_id=api_data.get('specialId'), special_amount=api_data.get('specialAmount'), special_pct_or_amt=api_data.get('specialPctOrAmt'),
+                     product_id=api_data.get('product', {}).get('id') if api_data.get('product') else None,
+                     subscription_plan_id=api_data.get('subscriptionPlan', {}).get('id') if api_data.get('subscriptionPlan') else None)
+
+
+def transform_order_payment(api_data: Dict[str, Any]) -> OrderPayment:
+    """Transform API order payment data into an OrderPayment model instance."""
+    if not isinstance(api_data, dict):
+        api_data = api_data.__dict__
+
+    return OrderPayment(id=api_data.get('id'), order_id=api_data.get('order_id'), amount=api_data.get('amount'), note=api_data.get('note'), invoice_id=api_data.get('invoice_id'),
+                        payment_id=api_data.get('payment_id'), pay_date=safe_parse_datetime(api_data.get('pay_date')), pay_status=api_data.get('pay_status'),
+                        last_updated=safe_parse_datetime(api_data.get('last_updated')), skip_commission=api_data.get('skip_commission', False),
+                        refund_invoice_payment_id=api_data.get('refund_invoice_payment_id', 0), created_at=safe_parse_datetime(api_data.get('created_at')),
+                        modified_at=safe_parse_datetime(api_data.get('modified_at')))
+
+
+def transform_order_transaction(api_data: Dict[str, Any]) -> OrderTransaction:
+    """Transform API order transaction data into OrderTransaction model instance."""
+    return OrderTransaction(id=api_data.get('id'), test=api_data.get('test', False), amount=api_data.get('amount'), currency=api_data.get('currency'), gateway=api_data.get('gateway'),
+                            payment_date=safe_parse_datetime(api_data.get('paymentDate')), type=api_data.get('type'), status=api_data.get('status'), errors=api_data.get('errors'),
+                            contact_id=api_data.get('contact_id'), transaction_date=safe_parse_datetime(api_data.get('transaction_date')), gateway_account_name=api_data.get('gateway_account_name'),
+                            order_ids=api_data.get('order_ids'), collection_method=api_data.get('collection_method'), payment_id=api_data.get('payment_id'), created_at=datetime.now(timezone.utc),
+                            modified_at=datetime.now(timezone.utc))
+
+
+def transform_note(api_data: Dict[str, Any]) -> Note:
+    """Transform API data to Note model."""
+    note_type = safe_enum_convert(api_data.get('type'), NoteType)
+    # Convert enum to string value if it exists
+    type_value = note_type.value if note_type else None
+
+    return Note(id=api_data.get('id'), contact_id=api_data.get('contact_id'), title=api_data.get('title'), body=api_data.get('body'), type=type_value,  # Use the string value instead of enum
+                created_at=safe_parse_datetime(api_data.get('created_at')), modified_at=safe_parse_datetime(api_data.get('modified_at')))
+
+
+def transform_task(api_data: Dict[str, Any]) -> Task:
+    """Transform task data from API to database model."""
+    status = safe_enum_convert(api_data.get('status'), TaskStatus)
+    priority = safe_enum_convert(api_data.get('priority'), TaskPriority)
+
+    return Task(id=api_data.get('id'), contact_id=api_data.get('contact_id'), title=api_data.get('title'), notes=api_data.get('notes'), priority=priority, status=status, type=api_data.get('type'),
+                due_date=safe_parse_datetime(api_data.get('due_date')))
+
+
+def transform_campaign(api_data: Dict[str, Any]) -> Campaign:
+    """Transform campaign data from API to database model."""
+    status = safe_enum_convert(api_data.get('status'), CampaignStatus)
+
+    return Campaign(id=api_data.get('id'), name=api_data.get('name'), description=api_data.get('description'), status=status, created_at=safe_parse_datetime(api_data.get('created_at')),
+                    modified_at=safe_parse_datetime(api_data.get('modified_at')))
+
+
+def transform_campaign_sequence(api_data: Dict[str, Any]) -> CampaignSequence:
+    """Transform API campaign sequence data into a CampaignSequence model instance."""
+    return CampaignSequence(id=api_data.get('id'), campaign_id=api_data.get('campaign_id'), name=api_data.get('name'), description=api_data.get('description'), status=api_data.get('status'),
+                            sequence_number=api_data.get('sequence_number'))
+
+
+def transform_subscription(api_data: Dict[str, Any]) -> Subscription:
+    """Transform subscription data from API to database model."""
+    status = safe_enum_convert(api_data.get('status'), SubscriptionStatus)
+
+    return Subscription(id=api_data.get('id'), product_id=api_data.get('product_id'), subscription_plan_id=api_data.get('subscription_plan_id'), status=status,
+                        next_bill_date=safe_parse_datetime(api_data.get('next_bill_date')), contact_id=api_data.get('contact_id'), payment_gateway_id=api_data.get('payment_gateway_id'),
+                        credit_card_id=api_data.get('credit_card_id'), start_date=safe_parse_datetime(api_data.get('start_date')), end_date=safe_parse_datetime(api_data.get('end_date')),
+                        billing_cycle=api_data.get('billing_cycle'), created_at=safe_parse_datetime(api_data.get('created_at')), modified_at=safe_parse_datetime(api_data.get('modified_at')))
+
+
+def transform_account_profile(api_data: Dict[str, Any]) -> AccountProfile:
+    """Transform API account profile data to AccountProfile model instance."""
+    profile = AccountProfile(id=api_data.get('id'), address_id=api_data.get('address_id'), business_primary_color=api_data.get('business_primary_color'),
+                             business_secondary_color=api_data.get('business_secondary_color'), business_type=api_data.get('business_type'), currency_code=api_data.get('currency_code'),
+                             email=api_data.get('email'), language_tag=api_data.get('language_tag'), logo_url=api_data.get('logo_url'), name=api_data.get('name'), phone=api_data.get('phone'),
+                             phone_ext=api_data.get('phone_ext'), time_zone=api_data.get('time_zone'), website=api_data.get('website'), created_at=safe_parse_datetime(api_data.get('created_at')),
+                             modified_at=safe_parse_datetime(api_data.get('modified_at')))
+
+    # Transform business goals
+    if 'business_goals' in api_data:
+        profile.business_goals = []
+        for goal in api_data['business_goals']:
+            try:
+                profile.business_goals.append(transform_business_goal(goal, profile.id))
+            except Exception as e:
+                logger.error(f"Error transforming business goal for profile {profile.id}: {str(e)}")
+                continue
+
+    return profile
+
+
+def transform_business_goal(api_data: Dict[str, Any], account_profile_id: int) -> BusinessGoal:
+    """Transform API business goal data into a BusinessGoal model instance."""
+    return BusinessGoal(id=api_data.get('id'), account_profile_id=account_profile_id, goal=api_data.get('goal'))
+
+
+def transform_affiliate(api_data: Dict[str, Any]) -> Affiliate:
+    """Transform API affiliate data into an Affiliate model instance."""
+    status = safe_enum_convert(api_data.get('status'), AffiliateStatus)
+
+    return Affiliate(id=api_data.get('id'), code=api_data.get('code'), contact_id=api_data.get('contact_id'), name=api_data.get('name'), parent_id=api_data.get('parent_id'), status=status,
+                     notify_on_lead=api_data.get('notify_on_lead'), notify_on_sale=api_data.get('notify_on_sale'), track_leads_for=api_data.get('track_leads_for'))
+
+
+def transform_affiliate_commission(api_data: Dict[str, Any]) -> AffiliateCommission:
+    """Transform API affiliate commission data into an AffiliateCommission model instance."""
+    return AffiliateCommission(id=api_data.get('id'), affiliate_id=api_data.get('affiliate_id'), amount_earned=api_data.get('amount_earned'), contact_id=api_data.get('contact_id'),
+                               contact_first_name=api_data.get('contact_first_name'), contact_last_name=api_data.get('contact_last_name'), date_earned=safe_parse_datetime(api_data.get('date_earned')),
+                               description=api_data.get('description'), invoice_id=api_data.get('invoice_id'), product_name=api_data.get('product_name'),
+                               sales_affiliate_id=api_data.get('sales_affiliate_id'), sold_by_first_name=api_data.get('sold_by_first_name'), sold_by_last_name=api_data.get('sold_by_last_name'))
+
+
+def transform_affiliate_program(api_data: Dict[str, Any]) -> AffiliateProgram:
+    """Transform API affiliate program data into an AffiliateProgram model instance."""
+    return AffiliateProgram(id=api_data.get('id'), affiliate_id=api_data.get('affiliate_id'), name=api_data.get('name'), notes=api_data.get('notes'), priority=api_data.get('priority'))
+
+
+def transform_affiliate_redirect(api_data: Dict[str, Any]) -> AffiliateRedirect:
+    """Transform API affiliate redirect data into an AffiliateRedirect model instance."""
+    return AffiliateRedirect(id=api_data.get('id'), affiliate_id=api_data.get('affiliate_id'), local_url_code=api_data.get('local_url_code'), name=api_data.get('name'),
+                             redirect_url=api_data.get('redirect_url'))
+
+
+def transform_affiliate_summary(api_data: Dict[str, Any]) -> AffiliateSummary:
+    """Transform API affiliate summary data into an AffiliateSummary model instance."""
+    return AffiliateSummary(id=api_data.get('id'), affiliate_id=api_data.get('affiliate_id'), amount_earned=api_data.get('amount_earned'), balance=api_data.get('balance'),
+                            clawbacks=api_data.get('clawbacks'))
+
+
+def transform_affiliate_clawback(api_data: Dict[str, Any]) -> AffiliateClawback:
+    """Transform API affiliate clawback data into an AffiliateClawback model instance."""
+    return AffiliateClawback(id=api_data.get('id'), affiliate_id=api_data.get('affiliate_id'), amount=api_data.get('amount'), contact_id=api_data.get('contact_id'),
+                             date_earned=safe_parse_datetime(api_data.get('date_earned')), description=api_data.get('description'), family_name=api_data.get('family_name'),
+                             given_name=api_data.get('given_name'), invoice_id=api_data.get('invoice_id'), product_name=api_data.get('product_name'),
+                             sale_affiliate_id=api_data.get('sale_affiliate_id'), sold_by_family_name=api_data.get('sold_by_family_name'), sold_by_given_name=api_data.get('sold_by_given_name'),
+                             subscription_plan_name=api_data.get('subscription_plan_name'))
+
+
+def transform_affiliate_payment(api_data: Dict[str, Any]) -> AffiliatePayment:
+    """Transform API affiliate payment data into an AffiliatePayment model instance."""
+    return AffiliatePayment(id=api_data.get('id'), affiliate_id=api_data.get('affiliate_id'), amount=api_data.get('amount'), date=safe_parse_datetime(api_data.get('date')),
+                            notes=api_data.get('notes'), type=api_data.get('type'))
+
+
+def transform_affiliate_redirect_program(api_data: Dict[str, Any], affiliate_redirect_id: int) -> AffiliateRedirectProgram:
+    """Transform API affiliate redirect program data into an AffiliateRedirectProgram model instance."""
+    return AffiliateRedirectProgram(id=api_data.get('id'), affiliate_redirect_id=affiliate_redirect_id, program_id=api_data.get('program_id'))
