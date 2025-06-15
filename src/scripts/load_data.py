@@ -426,12 +426,13 @@ def load_products(client: KeapClient, db_session: Session, checkpoint_manager: C
     error_logger = get_error_logger()
 
     try:
-        # Get query parameters based on update flag
-        query_params = checkpoint_manager.get_query_params(entity_type, update)
+        # Note: Products API doesn't support 'since' parameter
+        query_params = {}  # No special query parameters for products
 
-        offset = checkpoint_manager.get_checkpoint(entity_type)
+        # Always start from offset 0 to ensure we get all products
+        offset = 0
 
-        logger.info(f"Starting products load with params: {query_params}")
+        logger.info(f"Starting products load with offset: {offset}")
 
         while True:
             # Make API call with limit and offset
@@ -673,23 +674,21 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
     error_logger = get_error_logger()
 
     try:
-        # Get query parameters based on update flag
-        query_params = checkpoint_manager.get_query_params(entity_type, update)
+        # Note: Opportunities API doesn't support 'since' parameter
+        query_params = {}  # No special query parameters for opportunities
 
-        # If update is True and we have a last_loaded timestamp, we don't need to use offset
-        if update and 'since' in query_params:
-            offset = 0
-        else:
-            offset = checkpoint_manager.get_checkpoint(entity_type)
+        # Always start from offset 0 to ensure we get all opportunities
+        offset = 0
 
-        logger.info(f"Starting opportunities load with params: {query_params}")
+        logger.info(f"Starting opportunities load with offset: {offset}")
 
         while True:
             # Make API call with limit and offset
             items, pagination = client.get_opportunities(limit=batch_size, offset=offset, **query_params)
+            logger.debug(f"Retrieved {len(items)} opportunities from API")
 
             if not items:
-                # Mark as completed when no more items
+                logger.info("No more opportunities to load")
                 checkpoint_manager.save_checkpoint(entity_type, offset, completed=True)
                 break
 
@@ -1505,6 +1504,8 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
             new_offset = offset + len(items)
             checkpoint_manager.save_checkpoint(entity_type, new_offset)
 
+        logger.info(f"Completed loading tasks. Total: {total_records}, Success: {success_count}, Failed: {failed_count}")
+
     except Exception as e:
         logger.error(f"Error in load_tasks: {str(e)}")
         raise
@@ -1555,20 +1556,24 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
     error_logger = get_error_logger()
 
     try:
-        # Get query parameters based on update flag
-        query_params = checkpoint_manager.get_query_params(entity_type, update)
+        # Note: Notes API doesn't support 'since' parameter
+        query_params = {}  # No special query parameters for notes
 
-        logger.info(f"Starting notes load with params: {query_params}")
+        # Always start from offset 0 to ensure we get all notes
+        offset = 0
 
-        # Get all notes in a single call
-        items, _ = client.get_notes(**query_params)
+        logger.info(f"Starting notes load with offset: {offset}")
 
-        if not items:
-            # Mark as completed when no items
-            checkpoint_manager.save_checkpoint(entity_type, 0, completed=True)
-            return total_records, success_count, failed_count
+        while True:
+            # Make API call with limit and offset
+            items, pagination = client.get_notes(limit=batch_size, offset=offset, **query_params)
+            logger.debug(f"Retrieved {len(items)} notes from API")
 
-        try:
+            if not items:
+                logger.info("No more notes to load")
+                checkpoint_manager.save_checkpoint(entity_type, offset, completed=True)
+                break
+
             # Process items
             for item in items:
                 total_records += 1
@@ -1584,13 +1589,26 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
                     log_error(error_logger, entity_type, item.id, e, {'content': getattr(item, 'content', None)})
                     continue
 
-            # Mark as completed since we processed all items
-            checkpoint_manager.save_checkpoint(entity_type, len(items), completed=True)
-            logger.info(f"Completed loading notes. Total: {total_records}, Success: {success_count}, Failed: {failed_count}")
+            # Update checkpoint with new offset
+            new_offset = offset + len(items)
+            checkpoint_manager.save_checkpoint(entity_type, new_offset)
 
-        except Exception as e:
-            log_error(error_logger, entity_type, 0, e)
-            raise
+            # Check if we've reached the end
+            if not pagination.get('next'):
+                logger.info("Reached end of notes")
+                checkpoint_manager.save_checkpoint(entity_type, new_offset, completed=True)
+                break
+
+            # Parse next URL to get the offset for the next batch
+            next_offset = client._parse_next_url(pagination.get('next'))
+            if next_offset is None:
+                logger.info("No more pages to load")
+                checkpoint_manager.save_checkpoint(entity_type, new_offset, completed=True)
+                break
+
+            offset = next_offset
+
+        logger.info(f"Completed loading notes. Total: {total_records}, Success: {success_count}, Failed: {failed_count}")
 
     except Exception as e:
         logger.error(f"Error in load_notes: {str(e)}")
@@ -1631,41 +1649,58 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
     error_logger = get_error_logger()
 
     try:
-        # Get query parameters based on update flag
-        query_params = checkpoint_manager.get_query_params(entity_type, update)
+        # Note: Campaigns API doesn't support 'since' parameter
+        query_params = {}  # No special query parameters for campaigns
 
-        logger.info(f"Starting campaigns load with params: {query_params}")
+        # Always start from offset 0 to ensure we get all campaigns
+        offset = 0
 
-        # Get all campaigns in a single call
-        try:
-            items, _ = client.get_campaigns(**query_params)
-            logger.info(f"Retrieved {len(items) if items else 0} campaigns from API")
-        except Exception as e:
-            logger.error(f"Error retrieving campaigns list: {str(e)}")
-            raise
+        logger.info(f"Starting campaigns load with offset: {offset}")
 
-        if not items:
-            # Mark as completed when no items
-            checkpoint_manager.save_checkpoint(entity_type, 0, completed=True)
-            return total_records, success_count, failed_count
+        while True:
+            # Make API call with limit and offset
+            items, pagination = client.get_campaigns(limit=batch_size, offset=offset, **query_params)
+            logger.debug(f"Retrieved {len(items)} campaigns from API")
 
-        # Process items
-        for item in items:
-            total_records += 1
-            try:
-                logger.info(f"Processing campaign ID: {item.id}")
-                success = load_campaign_by_id(client, db_session, item.id)
-                if success:
-                    success_count += 1
-                else:
+            if not items:
+                logger.info("No more campaigns to load")
+                checkpoint_manager.save_checkpoint(entity_type, offset, completed=True)
+                break
+
+            # Process items
+            for item in items:
+                total_records += 1
+                try:
+                    logger.info(f"Processing campaign ID: {item.id}")
+                    success = load_campaign_by_id(client, db_session, item.id)
+                    if success:
+                        success_count += 1
+                    else:
+                        failed_count += 1
+                except Exception as e:
                     failed_count += 1
-            except Exception as e:
-                failed_count += 1
-                log_error(error_logger, entity_type, item.id, e, {'name': getattr(item, 'name', None)})
-                continue
+                    log_error(error_logger, entity_type, item.id, e, {'name': getattr(item, 'name', None)})
+                    continue
 
-        # Mark as completed since we processed all items
-        checkpoint_manager.save_checkpoint(entity_type, len(items), completed=True)
+            # Update checkpoint with new offset
+            new_offset = offset + len(items)
+            checkpoint_manager.save_checkpoint(entity_type, new_offset)
+
+            # Check if we've reached the end
+            if not pagination.get('next'):
+                logger.info("Reached end of campaigns")
+                checkpoint_manager.save_checkpoint(entity_type, new_offset, completed=True)
+                break
+
+            # Parse next URL to get the offset for the next batch
+            next_offset = client._parse_next_url(pagination.get('next'))
+            if next_offset is None:
+                logger.info("No more pages to load")
+                checkpoint_manager.save_checkpoint(entity_type, new_offset, completed=True)
+                break
+
+            offset = next_offset
+
         logger.info(f"Completed loading campaigns. Total: {total_records}, Success: {success_count}, Failed: {failed_count}")
 
     except Exception as e:
