@@ -13,7 +13,7 @@ from src.database.config import SessionLocal
 from src.models.models import (Affiliate, CustomField, Product, Tag, TagCategory)
 from src.transformers.transformers import (transform_credit_card, transform_tag)
 from src.utils.error_logger import ErrorLogger
-from src.utils.global_logger import get_error_logger
+from src.utils.global_logger import get_error_logger, initialize_loggers
 from src.utils.logging_config import setup_logging
 
 # Create logs and checkpoints directories if they don't exist
@@ -792,6 +792,7 @@ def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: Checkpo
     total_records = 0
     success_count = 0
     failed_count = 0
+    error_logger = get_error_logger()  # Initialize error logger
 
     try:
         # Get query parameters based on update flag
@@ -1341,7 +1342,7 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
     total_records = 0
     success_count = 0
     failed_count = 0
-    error_logger = ErrorLogger()
+    error_logger = get_error_logger()
 
     # Get query parameters
     query_params = checkpoint_manager.get_query_params(entity_type, update)
@@ -1812,6 +1813,9 @@ def main(update: bool = False, entity_type: str = None, entity_id: int = None):
     total_records = 0
     success_count = 0
     failed_count = 0
+
+    # Initialize logging and error logger
+    initialize_loggers()
 
     client = KeapClient()
     db = SessionLocal()
