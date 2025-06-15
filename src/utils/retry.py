@@ -1,7 +1,6 @@
 import logging
 import random
 import time
-from datetime import datetime, timezone
 from functools import wraps
 from typing import Callable, Dict, Optional, Tuple, Type
 
@@ -10,49 +9,31 @@ from ..api.exceptions import KeapRateLimitError, KeapQuotaExhaustedError
 logger = logging.getLogger(__name__)
 
 
-def get_retry_delay(headers: Dict[str, str], quota_available: int, throttle_available: int, tenant_available: int) -> Optional[float]:
+def get_throttle_retry_delay(headers: Dict[str, str], throttle_available: int, tenant_available: int) -> Optional[float]:
     """
-    Calculate the appropriate retry delay based on Keap's rate limit headers
+    Calculate the appropriate retry delay based on Keap's throttle headers
     
     Args:
-        headers: Response headers containing quota and throttle information
-        quota_available: Available quota requests
-        throttle_available: Available throttle requests
+        headers: Response headers containing throttle information
+        throttle_available: Available product throttle requests
         tenant_available: Available tenant throttle requests
         
     Returns:
         Float delay in seconds, or None if no retry is needed
     """
-    # If we have available requests in all categories, no need to retry
-    if quota_available > 0 and throttle_available > 0 and tenant_available > 0:
+    # If we have available requests in both categories, no need to retry
+    if throttle_available > 0 and tenant_available > 0:
         return None
         
-    # Get the most restrictive limit
-    if quota_available == 0:
-        # For quota limits, we need to wait until the next quota period
-        expiry_time = headers.get('x-keap-product-quota-expiry-time')
-        if expiry_time:
-            try:
-                expiry = int(expiry_time)
-                now = int(datetime.now(timezone.utc).timestamp())
-                return max(1.0, expiry - now)  # Minimum 1 second delay
-            except (ValueError, TypeError):
-                pass
-        # If we can't parse expiry time, use a conservative delay
-        return 3600.0  # 1 hour default for quota limits
-        
-    elif throttle_available == 0 or tenant_available == 0:
-        # For throttle limits, wait for the next minute
-        # Add some jitter to prevent all clients from retrying at exactly the same time
-        return 60.0 + random.uniform(0, 5.0)  # 60-65 seconds
-        
-    return None
+    # For throttle limits, wait for the next minute with some jitter
+    # This prevents all clients from retrying at exactly the same time
+    return 60.0 + random.uniform(0, 5.0)  # 60-65 seconds
 
 
-def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay: float = 3600.0, exponential_base: float = 2.0, jitter: bool = True,
+def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay: float = 60.0, exponential_base: float = 2.0, jitter: bool = True,
                         exceptions: Tuple[Type[Exception], ...] = (KeapRateLimitError,)) -> Callable:
     """
-    Decorator that implements intelligent backoff for retrying operations, with special handling for Keap's rate limits
+    Decorator that implements intelligent backoff for retrying operations, with special handling for Keap's throttle limits
     
     Args:
         max_retries: Maximum number of retry attempts
@@ -89,31 +70,30 @@ def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay
 
                     # Special handling for rate limit errors
                     if isinstance(e, KeapRateLimitError):
-                        # Extract rate limit information from the error message
-                        # Format: "Rate limit exceeded. Available: Quota=X, Throttle=Y, Tenant=Z. Time unit: UNIT"
+                        # Extract throttle information from the error message
+                        # Format: "Rate limit exceeded (TYPE, limit: X). Will retry after throttle period."
                         try:
-                            parts = str(e).split('Available: ')[1].split('.')[0]
-                            quota = int(parts.split('Quota=')[1].split(',')[0])
-                            throttle = int(parts.split('Throttle=')[1].split(',')[0])
-                            tenant = int(parts.split('Tenant=')[1].split('.')[0])
-                            
                             # Get headers from the last response if available
                             headers = getattr(e, 'response_headers', {})
                             
-                            # Calculate delay based on rate limit type
-                            delay = get_retry_delay(headers, quota, throttle, tenant)
+                            # Get throttle values from headers
+                            throttle_available = int(headers.get('x-keap-product-throttle-available', 0))
+                            tenant_available = int(headers.get('x-keap-tenant-throttle-available', 0))
+                            
+                            # Calculate delay based on throttle type
+                            delay = get_throttle_retry_delay(headers, throttle_available, tenant_available)
                             
                             if delay is None:
                                 # If we have available requests, retry immediately
-                                logger.info("Rate limit headers indicate requests are available, retrying immediately")
+                                logger.info("Throttle headers indicate requests are available, retrying immediately")
                                 continue
                                 
-                            logger.warning(f"Rate limit hit. Waiting {delay:.2f} seconds before retry. "
-                                         f"Available: Quota={quota}, Throttle={throttle}, Tenant={tenant}")
+                            logger.warning(f"Throttle limit hit. Waiting {delay:.2f} seconds before retry. "
+                                         f"Available: Throttle={throttle_available}, Tenant={tenant_available}")
                             
-                        except (IndexError, ValueError) as parse_error:
-                            # If we can't parse the error message, fall back to exponential backoff
-                            logger.warning(f"Could not parse rate limit error: {parse_error}. Using exponential backoff.")
+                        except (ValueError, AttributeError) as parse_error:
+                            # If we can't parse the error message or headers, fall back to exponential backoff
+                            logger.warning(f"Could not parse throttle error: {parse_error}. Using exponential backoff.")
                             delay = min(base_delay * (exponential_base ** (attempt - 1)), max_delay)
                             if jitter:
                                 delay = delay * (0.5 + random.random())

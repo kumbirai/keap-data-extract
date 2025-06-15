@@ -116,22 +116,22 @@ class KeapBaseClient:
                         "Quota will reset at midnight GMT."
                     )
                 
-                # Get the time unit and interval for the most restrictive limit
-                time_unit = 'minute'  # Default to minute
-                if quota_available == 0:
-                    time_unit = quota_headers.get('x-keap-product-quota-time-unit', 'day')
-                elif throttle_available == 0:
-                    time_unit = throttle_headers.get('x-keap-product-throttle-time-unit', 'minute')
+                # For throttle limits, determine which type was hit and get relevant values
+                limit_type = "unknown"
+                limit_value = 0
+                if throttle_available == 0:
+                    limit_type = "product throttle"
+                    limit_value = int(throttle_headers.get('x-keap-product-throttle-limit', 0))
                 elif tenant_available == 0:
-                    time_unit = tenant_headers.get('x-keap-tenant-throttle-time-unit', 'minute')
+                    limit_type = "tenant throttle"
+                    limit_value = int(tenant_headers.get('x-keap-tenant-throttle-limit', 0))
                 
                 # Combine all headers for the rate limit error
                 all_headers = {**quota_headers, **throttle_headers, **tenant_headers}
                 
                 raise KeapRateLimitError(
-                    f"Rate limit exceeded. Available: Quota={quota_available}, "
-                    f"Throttle={throttle_available}, Tenant={tenant_available}. "
-                    f"Time unit: {time_unit}",
+                    f"Rate limit exceeded ({limit_type}, limit: {limit_value}). "
+                    f"Will retry after throttle period.",
                     response_headers=all_headers
                 )
             elif status_code >= 500:
