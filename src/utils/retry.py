@@ -27,7 +27,8 @@ def get_throttle_retry_delay(headers: Dict[str, str], throttle_available: int, t
         
     # For throttle limits, wait for the next minute with some jitter
     # This prevents all clients from retrying at exactly the same time
-    return 60.0 + random.uniform(0, 5.0)  # 60-65 seconds
+    # Add extra jitter (0-10 seconds) to help prevent thundering herd
+    return 60.0 + random.uniform(0, 10.0)  # 60-70 seconds
 
 
 def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay: float = 60.0, exponential_base: float = 2.0, jitter: bool = True,
@@ -74,11 +75,11 @@ def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay
                         # Format: "Rate limit exceeded (TYPE, limit: X). Will retry after throttle period."
                         try:
                             # Get headers from the last response if available
-                            headers = getattr(e, 'response_headers', {})
+                            headers = getattr(e, 'response_headers', {}) or {}
                             
-                            # Get throttle values from headers
-                            throttle_available = int(headers.get('x-keap-product-throttle-available', 0))
-                            tenant_available = int(headers.get('x-keap-tenant-throttle-available', 0))
+                            # Get throttle values from headers with safe defaults
+                            throttle_available = int(headers.get('x-keap-product-throttle-available', '0') or '0')
+                            tenant_available = int(headers.get('x-keap-tenant-throttle-available', '0') or '0')
                             
                             # Calculate delay based on throttle type
                             delay = get_throttle_retry_delay(headers, throttle_available, tenant_available)

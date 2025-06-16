@@ -52,7 +52,29 @@ CREATE TYPE note_type AS ENUM (
     'Chat',
     'Voicemail',
     'Website',
-    'Form'
+    'Form',
+    'Appointment',
+    'Campaign',
+    'Contact',
+    'Deal',
+    'Document',
+    'File',
+    'Follow Up',
+    'Invoice',
+    'Order',
+    'Product',
+    'Purchase',
+    'Recurring Order',
+    'Referral',
+    'Refund',
+    'Subscription',
+    'Survey',
+    'Tag',
+    'Template',
+    'Transaction',
+    'User',
+    'Webform',
+    'Workflow'
 );
 
 CREATE TYPE contact_email_status AS ENUM (

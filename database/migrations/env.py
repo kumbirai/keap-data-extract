@@ -5,6 +5,7 @@ from alembic import context
 import os
 import sys
 from dotenv import load_dotenv
+from logging.config import fileConfig
 
 # Add the src directory to the Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../src'))
@@ -16,14 +17,24 @@ load_dotenv()
 # access to the values within the .ini file in use.
 config = context.config
 
+# Get database URL from environment
+DB_HOST = os.getenv('DB_HOST', 'localhost')
+DB_PORT = os.getenv('DB_PORT', '5432')
+DB_NAME = os.getenv('DB_NAME', 'keap_db')
+DB_USER = os.getenv('DB_USER', 'postgres')
+DB_PASSWORD = os.getenv('DB_PASSWORD', 'secret')
+
+# Set the database URL in the alembic.ini file
+config.set_main_option('sqlalchemy.url', f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
-    logging.config.fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-from models.models import Base
+from src.models.models import Base
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

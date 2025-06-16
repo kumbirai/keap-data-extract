@@ -98,9 +98,9 @@ class KeapBaseClient:
                           quota_headers, throttle_headers, tenant_headers)
                 
                 # Determine if we hit product quota or throttle limits
-                quota_available = int(quota_headers.get('x-keap-product-quota-available', 0))
-                throttle_available = int(throttle_headers.get('x-keap-product-throttle-available', 0))
-                tenant_available = int(tenant_headers.get('x-keap-tenant-throttle-available', 0))
+                quota_available = int(quota_headers.get('x-keap-product-quota-available', '0') or '0')
+                throttle_available = int(throttle_headers.get('x-keap-product-throttle-available', '0') or '0')
+                tenant_available = int(tenant_headers.get('x-keap-tenant-throttle-available', '0') or '0')
                 
                 # Check if we've hit the daily quota limit
                 if quota_available == 0 and quota_headers.get('x-keap-product-quota-time-unit', '').lower() == 'day':
