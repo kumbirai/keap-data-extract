@@ -16,7 +16,7 @@ load_dotenv()
 
 class KeapBaseClient:
     def __init__(self):
-        self.base_url = "https://api.keap.com/crm/rest/v1"
+        self.base_url = "https://api.infusionsoft.com/crm/rest/v1"
         self.api_key = os.getenv('KEAP_API_KEY')
         if not self.api_key:
             raise KeapAuthenticationError("KEAP_API_KEY environment variable is not set")
@@ -77,6 +77,18 @@ class KeapBaseClient:
         logger.debug("Quota Headers: %s", quota_headers)
         logger.debug("Throttle Headers: %s", throttle_headers)
         logger.debug("Tenant Headers: %s", tenant_headers)
+        
+        # Log raw header values for debugging
+        logger.debug("Raw quota available header: %r", response.headers.get('x-keap-product-quota-available'))
+        logger.debug("Raw throttle available header: %r", response.headers.get('x-keap-product-throttle-available'))
+        logger.debug("Raw tenant available header: %r", response.headers.get('x-keap-tenant-throttle-available'))
+        
+        # Log all headers for debugging (only in debug mode)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("All response headers:")
+            for header_name, header_value in response.headers.items():
+                if 'keap' in header_name.lower():
+                    logger.debug("  %s: %r", header_name, header_value)
 
         try:
             response.raise_for_status()
@@ -97,12 +109,24 @@ class KeapBaseClient:
                 logger.info("Rate limit exceeded. Headers: Quota=%s, Throttle=%s, Tenant=%s", 
                           quota_headers, throttle_headers, tenant_headers)
                 
-                # Determine if we hit product quota or throttle limits
-                quota_available = int(quota_headers.get('x-keap-product-quota-available', '0') or '0')
-                throttle_available = int(throttle_headers.get('x-keap-product-throttle-available', '0') or '0')
-                tenant_available = int(tenant_headers.get('x-keap-tenant-throttle-available', '0') or '0')
+                # Safely parse header values, handling empty strings
+                def safe_int_parse(value, default=0):
+                    """Safely parse integer from header value, handling empty strings"""
+                    if value is None or value == '':
+                        return default
+                    try:
+                        return int(value)
+                    except (ValueError, TypeError):
+                        return default
                 
-                # Check if we've hit the daily quota limit
+                # Determine if we hit product quota or throttle limits
+                quota_available = safe_int_parse(quota_headers.get('x-keap-product-quota-available'))
+                throttle_available = safe_int_parse(throttle_headers.get('x-keap-product-throttle-available'))
+                tenant_available = safe_int_parse(tenant_headers.get('x-keap-tenant-throttle-available'))
+                
+                logger.debug(f"Parsed values - Quota available: {quota_available}, Throttle available: {throttle_available}, Tenant available: {tenant_available}")
+                
+                # Check if we've hit the daily quota limit (only if quota_available is actually 0)
                 if quota_available == 0 and quota_headers.get('x-keap-product-quota-time-unit', '').lower() == 'day':
                     quota_limit = quota_headers.get('x-keap-product-quota-limit', 'unknown')
                     quota_used = quota_headers.get('x-keap-product-quota-used', 'unknown')
@@ -116,15 +140,29 @@ class KeapBaseClient:
                         "Quota will reset at midnight GMT."
                     )
                 
-                # For throttle limits, determine which type was hit and get relevant values
-                limit_type = "unknown"
-                limit_value = 0
-                if throttle_available == 0:
+                # If quota headers are missing or empty, but we have throttle information,
+                # assume this is a throttle limit, not a quota limit
+                if (quota_headers.get('x-keap-product-quota-available') is None or 
+                    quota_headers.get('x-keap-product-quota-available') == '') and throttle_available == 0:
+                    logger.warning("Quota headers are missing/empty, but throttle limit is hit. Treating as throttle limit.")
                     limit_type = "product throttle"
-                    limit_value = int(throttle_headers.get('x-keap-product-throttle-limit', 0))
+                    limit_value = safe_int_parse(throttle_headers.get('x-keap-product-throttle-limit'))
+                elif (quota_headers.get('x-keap-product-quota-available') is None or 
+                      quota_headers.get('x-keap-product-quota-available') == '') and tenant_available == 0:
+                    logger.warning("Quota headers are missing/empty, but tenant throttle limit is hit. Treating as throttle limit.")
+                    limit_type = "tenant throttle"
+                    limit_value = safe_int_parse(tenant_headers.get('x-keap-tenant-throttle-limit'))
+                # For throttle limits, determine which type was hit and get relevant values
+                elif throttle_available == 0:
+                    limit_type = "product throttle"
+                    limit_value = safe_int_parse(throttle_headers.get('x-keap-product-throttle-limit'))
                 elif tenant_available == 0:
                     limit_type = "tenant throttle"
-                    limit_value = int(tenant_headers.get('x-keap-tenant-throttle-limit', 0))
+                    limit_value = safe_int_parse(tenant_headers.get('x-keap-tenant-throttle-limit'))
+                else:
+                    # If we can't determine the specific limit type, use a generic message
+                    limit_type = "unknown"
+                    limit_value = 0
                 
                 # Combine all headers for the rate limit error
                 all_headers = {**quota_headers, **throttle_headers, **tenant_headers}
