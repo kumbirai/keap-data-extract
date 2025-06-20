@@ -9,12 +9,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from src.api.keap_client import KeapClient
+from src.api.exceptions import KeapRateLimitError, KeapServerError, KeapQuotaExhaustedError
 from src.database.config import SessionLocal
 from src.models.models import (Affiliate, CustomField, Product, Tag, TagCategory)
 from src.transformers.transformers import (transform_credit_card, transform_tag)
 from src.utils.error_logger import ErrorLogger
 from src.utils.global_logger import get_error_logger, initialize_loggers
 from src.utils.logging_config import setup_logging
+from src.utils.retry import exponential_backoff
 
 # Create logs and checkpoints directories if they don't exist
 os.makedirs('logs', exist_ok=True)
@@ -488,6 +490,7 @@ def load_products(client: KeapClient, db_session: Session, checkpoint_manager: C
     return total_records, success_count, failed_count
 
 
+@exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_product_by_id(client: KeapClient, db_session: Session, product_id: int) -> bool:
     """Load a single product by ID from Keap API into database."""
     try:
@@ -524,7 +527,16 @@ def load_product_by_id(client: KeapClient, db_session: Session, product_id: int)
         logger.info(f"Successfully processed product ID: {product_id}")
         return True
 
+    except (KeapRateLimitError, KeapServerError) as e:
+        # These are retryable errors, let the decorator handle them
+        logger.warning(f"Retryable error processing product ID {product_id}: {e}")
+        raise
+    except KeapQuotaExhaustedError as e:
+        # Quota exhaustion is not retryable, log and return False
+        logger.error(f"Quota exhausted while processing product ID {product_id}: {e}")
+        return False
     except Exception as e:
+        # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing product ID {product_id}: {e}")
         return False
@@ -607,6 +619,7 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
     return total_records, success_count, failed_count
 
 
+@exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_contact_by_id(client: KeapClient, db_session: Session, contact_id: int) -> bool:
     """Load a single contact by ID from Keap API into database."""
     try:
@@ -658,7 +671,16 @@ def load_contact_by_id(client: KeapClient, db_session: Session, contact_id: int)
         logger.info(f"Successfully processed contact ID: {contact_id}")
         return True
 
+    except (KeapRateLimitError, KeapServerError) as e:
+        # These are retryable errors, let the decorator handle them
+        logger.warning(f"Retryable error processing contact ID {contact_id}: {e}")
+        raise
+    except KeapQuotaExhaustedError as e:
+        # Quota exhaustion is not retryable, log and return False
+        logger.error(f"Quota exhausted while processing contact ID {contact_id}: {e}")
+        return False
     except Exception as e:
+        # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing contact ID {contact_id}: {e}")
         return False
@@ -736,6 +758,7 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
     return total_records, success_count, failed_count
 
 
+@exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_opportunity_by_id(client: KeapClient, db_session: Session, opportunity_id: int) -> bool:
     """Load a single opportunity by ID from Keap API into database."""
     try:
@@ -763,7 +786,16 @@ def load_opportunity_by_id(client: KeapClient, db_session: Session, opportunity_
         logger.info(f"Successfully processed opportunity ID: {opportunity_id}")
         return True
 
+    except (KeapRateLimitError, KeapServerError) as e:
+        # These are retryable errors, let the decorator handle them
+        logger.warning(f"Retryable error processing opportunity ID {opportunity_id}: {e}")
+        raise
+    except KeapQuotaExhaustedError as e:
+        # Quota exhaustion is not retryable, log and return False
+        logger.error(f"Quota exhausted while processing opportunity ID {opportunity_id}: {e}")
+        return False
     except Exception as e:
+        # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing opportunity ID {opportunity_id}: {e}")
         return False
@@ -840,6 +872,7 @@ def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: Checkpo
     return total_records, success_count, failed_count
 
 
+@exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_affiliate_by_id(client: KeapClient, db_session: Session, affiliate_id: int) -> bool:
     """Load a single affiliate by ID from Keap API into database."""
     try:
@@ -883,7 +916,16 @@ def load_affiliate_by_id(client: KeapClient, db_session: Session, affiliate_id: 
         logger.info(f"Successfully processed affiliate ID: {affiliate_id}")
         return True
 
+    except (KeapRateLimitError, KeapServerError) as e:
+        # These are retryable errors, let the decorator handle them
+        logger.warning(f"Retryable error processing affiliate ID {affiliate_id}: {e}")
+        raise
+    except KeapQuotaExhaustedError as e:
+        # Quota exhaustion is not retryable, log and return False
+        logger.error(f"Quota exhausted while processing affiliate ID {affiliate_id}: {e}")
+        return False
     except Exception as e:
+        # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing affiliate ID {affiliate_id}: {e}")
         return False
@@ -1393,6 +1435,7 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
     return total_records, success_count, failed_count
 
 
+@exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_order_by_id(client: KeapClient, db_session: Session, order_id: int) -> bool:
     """Load a single order by ID from Keap API into database."""
     try:
@@ -1448,7 +1491,16 @@ def load_order_by_id(client: KeapClient, db_session: Session, order_id: int) -> 
         logger.info(f"Successfully processed order ID: {order_id}")
         return True
 
+    except (KeapRateLimitError, KeapServerError) as e:
+        # These are retryable errors, let the decorator handle them
+        logger.warning(f"Retryable error processing order ID {order_id}: {e}")
+        raise
+    except KeapQuotaExhaustedError as e:
+        # Quota exhaustion is not retryable, log and return False
+        logger.error(f"Quota exhausted while processing order ID {order_id}: {e}")
+        return False
     except Exception as e:
+        # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing order ID {order_id}: {e}")
         return False
@@ -1514,6 +1566,7 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
     return total_records, success_count, failed_count
 
 
+@exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_task_by_id(client: KeapClient, db_session: Session, task_id: int) -> bool:
     """Load a single task by ID from Keap API into database."""
     try:
@@ -1541,7 +1594,16 @@ def load_task_by_id(client: KeapClient, db_session: Session, task_id: int) -> bo
         logger.info(f"Successfully processed task ID: {task_id}")
         return True
 
+    except (KeapRateLimitError, KeapServerError) as e:
+        # These are retryable errors, let the decorator handle them
+        logger.warning(f"Retryable error processing task ID {task_id}: {e}")
+        raise
+    except KeapQuotaExhaustedError as e:
+        # Quota exhaustion is not retryable, log and return False
+        logger.error(f"Quota exhausted while processing task ID {task_id}: {e}")
+        return False
     except Exception as e:
+        # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing task ID {task_id}: {e}")
         return False
@@ -1618,6 +1680,7 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
     return total_records, success_count, failed_count
 
 
+@exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_note_by_id(client: KeapClient, db_session: Session, note_id: int) -> bool:
     """Load a single note by ID from Keap API into database."""
     try:
@@ -1634,7 +1697,16 @@ def load_note_by_id(client: KeapClient, db_session: Session, note_id: int) -> bo
         logger.info(f"Successfully processed note ID: {note_id}")
         return True
 
+    except (KeapRateLimitError, KeapServerError) as e:
+        # These are retryable errors, let the decorator handle them
+        logger.warning(f"Retryable error processing note ID {note_id}: {e}")
+        raise
+    except KeapQuotaExhaustedError as e:
+        # Quota exhaustion is not retryable, log and return False
+        logger.error(f"Quota exhausted while processing note ID {note_id}: {e}")
+        return False
     except Exception as e:
+        # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing note ID {note_id}: {e}")
         return False
@@ -1711,6 +1783,7 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
     return total_records, success_count, failed_count
 
 
+@exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_campaign_by_id(client: KeapClient, db_session: Session, campaign_id: int) -> bool:
     """Load a single campaign by ID from Keap API into database."""
     try:
@@ -1741,7 +1814,16 @@ def load_campaign_by_id(client: KeapClient, db_session: Session, campaign_id: in
         logger.info(f"Successfully processed campaign ID: {campaign_id}")
         return True
 
+    except (KeapRateLimitError, KeapServerError) as e:
+        # These are retryable errors, let the decorator handle them
+        logger.warning(f"Retryable error processing campaign ID {campaign_id}: {e}")
+        raise
+    except KeapQuotaExhaustedError as e:
+        # Quota exhaustion is not retryable, log and return False
+        logger.error(f"Quota exhausted while processing campaign ID {campaign_id}: {e}")
+        return False
     except Exception as e:
+        # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing campaign ID {campaign_id}: {e}")
         return False

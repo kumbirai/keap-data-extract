@@ -92,6 +92,18 @@ class KeapBaseClient:
         logger.debug("Quota Headers: %s", quota_headers)
         logger.debug("Throttle Headers: %s", throttle_headers)
         logger.debug("Tenant Headers: %s", tenant_headers)
+        
+        # Log raw header values for debugging
+        logger.debug("Raw quota available header: %r", response.headers.get('x-keap-product-quota-available'))
+        logger.debug("Raw throttle available header: %r", response.headers.get('x-keap-product-throttle-available'))
+        logger.debug("Raw tenant available header: %r", response.headers.get('x-keap-tenant-throttle-available'))
+        
+        # Log all headers for debugging (only in debug mode)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("All response headers:")
+            for header_name, header_value in response.headers.items():
+                if 'keap' in header_name.lower():
+                    logger.debug("  %s: %r", header_name, header_value)
 
         try:
             response.raise_for_status()
@@ -121,6 +133,8 @@ class KeapBaseClient:
                 throttle_available = self.safe_int_parse(throttle_available_raw)
                 tenant_available = self.safe_int_parse(tenant_available_raw)
                 
+                logger.debug(f"Parsed values - Quota available: {quota_available}, Throttle available: {throttle_available}, Tenant available: {tenant_available}")
+                
                 # Check if we've hit the daily quota limit
                 # Only trigger if we have meaningful quota data AND it's actually 0
                 if (self.has_meaningful_value(quota_available_raw) and 
@@ -139,15 +153,29 @@ class KeapBaseClient:
                         "Quota will reset at midnight GMT."
                     )
                 
+                # If quota headers are missing or empty, but we have throttle information,
+                # assume this is a throttle limit, not a quota limit
+                if (quota_headers.get('x-keap-product-quota-available') is None or 
+                    quota_headers.get('x-keap-product-quota-available') == '') and throttle_available == 0:
+                    logger.warning("Quota headers are missing/empty, but throttle limit is hit. Treating as throttle limit.")
+                    limit_type = "product throttle"
+                    limit_value = self.safe_int_parse(throttle_headers.get('x-keap-product-throttle-limit'))
+                elif (quota_headers.get('x-keap-product-quota-available') is None or 
+                      quota_headers.get('x-keap-product-quota-available') == '') and tenant_available == 0:
+                    logger.warning("Quota headers are missing/empty, but tenant throttle limit is hit. Treating as throttle limit.")
+                    limit_type = "tenant throttle"
+                    limit_value = self.safe_int_parse(tenant_headers.get('x-keap-tenant-throttle-limit'))
                 # For throttle limits, determine which type was hit and get relevant values
-                limit_type = "unknown"
-                limit_value = 0
-                if self.has_meaningful_value(throttle_available_raw) and throttle_available == 0:
+                elif self.has_meaningful_value(throttle_available_raw) and throttle_available == 0:
                     limit_type = "product throttle"
                     limit_value = self.safe_int_parse(throttle_headers.get('x-keap-product-throttle-limit'))
                 elif self.has_meaningful_value(tenant_available_raw) and tenant_available == 0:
                     limit_type = "tenant throttle"
                     limit_value = self.safe_int_parse(tenant_headers.get('x-keap-tenant-throttle-limit'))
+                else:
+                    # If we can't determine the specific limit type, use a generic message
+                    limit_type = "unknown"
+                    limit_value = 0
                 
                 # Combine all headers for the rate limit error
                 all_headers = {**quota_headers, **throttle_headers, **tenant_headers}

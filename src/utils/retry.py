@@ -31,6 +31,16 @@ def get_throttle_retry_delay(headers: Dict[str, str], throttle_available: int, t
     return 60.0 + random.uniform(0, 10.0)  # 60-70 seconds
 
 
+def safe_int_parse(value, default=0):
+    """Safely parse integer from header value, handling empty strings"""
+    if value is None or value == '':
+        return default
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay: float = 60.0, exponential_base: float = 2.0, jitter: bool = True,
                         exceptions: Tuple[Type[Exception], ...] = (KeapRateLimitError,)) -> Callable:
     """
@@ -78,8 +88,8 @@ def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay
                             headers = getattr(e, 'response_headers', {}) or {}
                             
                             # Get throttle values from headers with safe defaults
-                            throttle_available = int(headers.get('x-keap-product-throttle-available', '0') or '0')
-                            tenant_available = int(headers.get('x-keap-tenant-throttle-available', '0') or '0')
+                            throttle_available = safe_int_parse(headers.get('x-keap-product-throttle-available'))
+                            tenant_available = safe_int_parse(headers.get('x-keap-tenant-throttle-available'))
                             
                             # Calculate delay based on throttle type
                             delay = get_throttle_retry_delay(headers, throttle_available, tenant_available)
