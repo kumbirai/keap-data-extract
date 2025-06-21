@@ -4,13 +4,12 @@ from urllib.parse import parse_qs, urlparse
 
 from src.transformers.transformers import (transform_account_profile, transform_affiliate, transform_affiliate_clawback, transform_affiliate_commission, transform_affiliate_payment,
                                            transform_affiliate_program, transform_affiliate_redirect, transform_affiliate_summary, transform_applied_tag, transform_campaign,
-                                           transform_campaign_sequence, transform_contact_with_related, transform_custom_field, transform_list_response, transform_note, transform_opportunity,
-                                           transform_order_item, transform_order_payment, transform_order_transaction, transform_order_with_items, transform_product, transform_subscription,
-                                           transform_tag, transform_task)
+                                           transform_contact_with_related, transform_custom_field, transform_list_response, transform_note, transform_opportunity, transform_order_item,
+                                           transform_order_payment, transform_order_transaction, transform_order_with_items, transform_product, transform_subscription, transform_tag, transform_task)
 from .base_client import KeapBaseClient
 from .exceptions import KeapNotFoundError
-from ..models.models import (AccountProfile, Affiliate, AffiliateClawback, AffiliateCommission, AffiliatePayment, AffiliateProgram, AffiliateRedirect, AffiliateSummary, Campaign, CampaignSequence,
-                             Contact, CustomField, Note, Opportunity, Order, OrderItem, OrderPayment, OrderTransaction, Product, Subscription, Tag, Task)
+from ..models.models import (AccountProfile, Affiliate, AffiliateClawback, AffiliateCommission, AffiliatePayment, AffiliateProgram, AffiliateRedirect, AffiliateSummary, Campaign, Contact, CustomField,
+                             Note, Opportunity, Order, OrderItem, OrderPayment, OrderTransaction, Product, Subscription, Tag, Task)
 
 logger = logging.getLogger(__name__)
 
@@ -299,7 +298,8 @@ class KeapClient(KeapBaseClient):
         return all_custom_fields
 
     # Opportunity Related Methods
-    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Opportunity], Dict[str, Any]]:
+    def get_opportunities(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[
+        List[Opportunity], Dict[str, Any]]:
         """Get a list of opportunities.
         
         Args:
@@ -336,7 +336,8 @@ class KeapClient(KeapBaseClient):
             raise
 
     # Product Related Methods
-    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Product], Dict[str, Any]]:
+    def get_products(self, limit: int = 50, offset: int = 0, subscription_only: Optional[bool] = None, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[
+        List[Product], Dict[str, Any]]:
         """Get a list of products.
         
         Args:
@@ -585,7 +586,8 @@ class KeapClient(KeapBaseClient):
         return transform_campaign(response)
 
     # Subscription Related Methods
-    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Subscription], Dict[str, Any]]:
+    def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[
+        List[Subscription], Dict[str, Any]]:
         """Get a list of subscriptions.
         
         Args:

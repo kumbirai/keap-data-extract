@@ -24,7 +24,7 @@ def get_throttle_retry_delay(headers: Dict[str, str], throttle_available: int, t
     # If we have available requests in both categories, no need to retry
     if throttle_available > 0 and tenant_available > 0:
         return None
-        
+
     # For throttle limits, wait for the next minute with some jitter
     # This prevents all clients from retrying at exactly the same time
     # Add extra jitter (0-10 seconds) to help prevent thundering herd
@@ -71,7 +71,7 @@ def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay
                     # Never retry on quota exhaustion
                     if isinstance(e, KeapQuotaExhaustedError):
                         raise
-                        
+
                     last_exception = e
                     attempt += 1
 
@@ -86,22 +86,22 @@ def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay
                         try:
                             # Get headers from the last response if available
                             headers = getattr(e, 'response_headers', {}) or {}
-                            
+
                             # Get throttle values from headers with safe defaults
                             throttle_available = safe_int_parse(headers.get('x-keap-product-throttle-available'))
                             tenant_available = safe_int_parse(headers.get('x-keap-tenant-throttle-available'))
-                            
+
                             # Calculate delay based on throttle type
                             delay = get_throttle_retry_delay(headers, throttle_available, tenant_available)
-                            
+
                             if delay is None:
                                 # If we have available requests, retry immediately
                                 logger.info("Throttle headers indicate requests are available, retrying immediately")
                                 continue
-                                
+
                             logger.warning(f"Throttle limit hit. Waiting {delay:.2f} seconds before retry. "
-                                         f"Available: Throttle={throttle_available}, Tenant={tenant_available}")
-                            
+                                           f"Available: Throttle={throttle_available}, Tenant={tenant_available}")
+
                         except (ValueError, AttributeError) as parse_error:
                             # If we can't parse the error message or headers, fall back to exponential backoff
                             logger.warning(f"Could not parse throttle error: {parse_error}. Using exponential backoff.")
@@ -114,7 +114,7 @@ def exponential_backoff(max_retries: int = 5, base_delay: float = 1.0, max_delay
                         if jitter:
                             delay = delay * (0.5 + random.random())
                         logger.warning(f"Attempt {attempt}/{max_retries} failed. "
-                                     f"Retrying in {delay:.2f} seconds. Error: {str(e)}")
+                                       f"Retrying in {delay:.2f} seconds. Error: {str(e)}")
 
                     time.sleep(delay)
 

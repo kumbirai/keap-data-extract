@@ -8,10 +8,10 @@ from typing import Any, Dict, Optional, Tuple
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from src.api.keap_client import KeapClient
 from src.api.exceptions import KeapRateLimitError, KeapServerError, KeapQuotaExhaustedError
+from src.api.keap_client import KeapClient
 from src.database.config import SessionLocal
-from src.models.models import (Affiliate, CustomField, Product, Tag, TagCategory, SubscriptionPlan)
+from src.models.models import (Affiliate, CustomField, Tag, TagCategory)
 from src.transformers.transformers import (transform_credit_card, transform_tag)
 from src.utils.error_logger import ErrorLogger
 from src.utils.global_logger import get_error_logger, initialize_loggers
@@ -501,7 +501,7 @@ def load_product_by_id(client: KeapClient, db_session: Session, product_id: int)
     This function also handles subscription plans that are embedded in the product API response.
     """
     error_logger = get_error_logger()  # Get error logger for file logging
-    
+
     try:
         logger.info(f"Loading product ID: {product_id}")
 
@@ -519,7 +519,7 @@ def load_product_by_id(client: KeapClient, db_session: Session, product_id: int)
         # Use merge to handle both new and existing products
         # This will insert if the product doesn't exist, or update if it does
         merged_product = db_session.merge(full_product)
-        
+
         # Handle relationships if needed
         if hasattr(full_product, 'options'):
             merged_product.options = full_product.options
@@ -641,7 +641,7 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
 def load_contact_by_id(client: KeapClient, db_session: Session, contact_id: int) -> bool:
     """Load a single contact by ID from Keap API into database."""
     error_logger = get_error_logger()  # Get error logger for file logging
-    
+
     try:
         logger.info(f"Loading contact ID: {contact_id}")
 
@@ -785,7 +785,7 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
 def load_opportunity_by_id(client: KeapClient, db_session: Session, opportunity_id: int) -> bool:
     """Load a single opportunity by ID from Keap API into database."""
     error_logger = get_error_logger()  # Get error logger for file logging
-    
+
     try:
         logger.info(f"Loading opportunity ID: {opportunity_id}")
 
@@ -904,7 +904,7 @@ def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: Checkpo
 def load_affiliate_by_id(client: KeapClient, db_session: Session, affiliate_id: int) -> bool:
     """Load a single affiliate by ID from Keap API into database."""
     error_logger = get_error_logger()  # Get error logger for file logging
-    
+
     try:
         logger.info(f"Loading affiliate ID: {affiliate_id}")
 
@@ -1474,7 +1474,7 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
 def load_order_by_id(client: KeapClient, db_session: Session, order_id: int) -> bool:
     """Load a single order by ID from Keap API into database."""
     error_logger = get_error_logger()  # Get error logger for file logging
-    
+
     try:
         logger.info(f"Loading order ID: {order_id}")
 
@@ -1610,7 +1610,7 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
 def load_task_by_id(client: KeapClient, db_session: Session, task_id: int) -> bool:
     """Load a single task by ID from Keap API into database."""
     error_logger = get_error_logger()  # Get error logger for file logging
-    
+
     try:
         logger.info(f"Loading task ID: {task_id}")
 
@@ -1729,7 +1729,7 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
 def load_note_by_id(client: KeapClient, db_session: Session, note_id: int) -> bool:
     """Load a single note by ID from Keap API into database."""
     error_logger = get_error_logger()  # Get error logger for file logging
-    
+
     try:
         logger.info(f"Loading note ID: {note_id}")
 
@@ -1837,7 +1837,7 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
 def load_campaign_by_id(client: KeapClient, db_session: Session, campaign_id: int) -> bool:
     """Load a single campaign by ID from Keap API into database."""
     error_logger = get_error_logger()  # Get error logger for file logging
-    
+
     try:
         logger.info(f"Loading campaign ID: {campaign_id}")
 
@@ -2120,8 +2120,7 @@ def main(update: bool = False, entity_type: str = None, entity_id: int = None):
                 reprocessor.run()
                 logger.info("Error reprocessing completed")
             except Exception as e:
-                logger.error(f"Error during error reprocessing: {str(e)}")
-                # Don't raise here - we don't want to fail the main load if reprocessing fails
+                logger.error(f"Error during error reprocessing: {str(e)}")  # Don't raise here - we don't want to fail the main load if reprocessing fails
 
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")
@@ -2129,15 +2128,14 @@ def main(update: bool = False, entity_type: str = None, entity_id: int = None):
     finally:
         db.close()
 
-    
-
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description='Load data from Keap API into database')
     parser.add_argument('--update', action='store_true', help='Perform update operation using last_loaded timestamps')
-    parser.add_argument('--entity-type', choices=['custom_fields', 'tags', 'products', 'contacts', 'affiliates', 'orders', 'opportunities', 'tasks', 'notes', 'campaigns', 'subscriptions'], help='Type of entity to load')
+    parser.add_argument('--entity-type', choices=['custom_fields', 'tags', 'products', 'contacts', 'affiliates', 'orders', 'opportunities', 'tasks', 'notes', 'campaigns', 'subscriptions'],
+                        help='Type of entity to load')
     parser.add_argument('--entity-id', type=int, help='ID of specific entity to load')
 
     args = parser.parse_args()
