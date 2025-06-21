@@ -584,15 +584,6 @@ class KeapClient(KeapBaseClient):
         response = self.get(f'campaigns/{campaign_id}')
         return transform_campaign(response)
 
-    def get_campaign_sequences(self, campaign_id: int) -> List[CampaignSequence]:
-        """Get sequences for a campaign."""
-        try:
-            response = self.get(f'campaigns/{campaign_id}/sequences')
-            return transform_list_response(response, transform_campaign_sequence)
-        except KeapNotFoundError:
-            logger.warning(f"No sequences found for campaign {campaign_id}")
-            return []
-
     # Subscription Related Methods
     def get_subscriptions(self, contact_id: Optional[int] = None, limit: int = 50, offset: int = 0, since: Optional[str] = None, db_session=None, **additional_params) -> Tuple[List[Subscription], Dict[str, Any]]:
         """Get a list of subscriptions.

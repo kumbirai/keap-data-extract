@@ -8,7 +8,7 @@ from dateutil.parser import parse as parse_datetime
 from src.models.models import (AccountProfile, Affiliate, AffiliateClawback, AffiliateCommission, AffiliatePayment, AffiliateProgram, AffiliateRedirect, AffiliateRedirectProgram, AffiliateStatus,
                                AffiliateSummary, BusinessGoal, Campaign, CampaignSequence, CampaignStatus, Contact, ContactAddress, ContactCustomFieldValue, ContactEmailStatus, ContactSourceType,
                                CreditCard, CustomField, CustomFieldType, EmailAddress, FaxNumber, Note, NoteType, Opportunity, Order, OrderItem, OrderPayment, OrderSourceType, OrderStatus,
-                               OrderTransaction, PaymentGateway, PhoneNumber, Product, ShippingInformation, Subscription, SubscriptionStatus, TagCategory, Task, TaskPriority, TaskStatus, Tag)
+                               OrderTransaction, PaymentGateway, PhoneNumber, Product, ShippingInformation, Subscription, SubscriptionPlan, SubscriptionStatus, TagCategory, Task, TaskPriority, TaskStatus, Tag)
 
 logger = logging.getLogger(__name__)
 
@@ -505,14 +505,69 @@ def transform_opportunity(api_data: Dict[str, Any]) -> Opportunity:
 
 
 def transform_product(api_data: Dict[str, Any]) -> Product:
-    """Transform API product data into a Product model instance."""
+    """Transform API product data into a Product model instance.
+    
+    This function also handles subscription plans that are embedded in the product API response.
+    The subscription plans are stored in the product.subscription_plans relationship.
+    """
     try:
-        return Product(id=api_data.get('id'), sku=api_data.get('sku', ''), active=api_data.get('active', True), url=api_data.get('url'), product_name=api_data.get('product_name'),
-                       sub_category_id=api_data.get('sub_category_id', 0), product_desc=api_data.get('product_desc'), product_price=api_data.get('product_price'),
-                       product_short_desc=api_data.get('product_short_desc'), subscription_only=api_data.get('subscription_only', False), status=api_data.get('status', 1))
+        product = Product(
+            id=api_data.get('id'), 
+            sku=api_data.get('sku', ''), 
+            active=api_data.get('active', True), 
+            url=api_data.get('url'), 
+            product_name=api_data.get('product_name'),
+            sub_category_id=api_data.get('sub_category_id', 0), 
+            product_desc=api_data.get('product_desc'), 
+            product_price=api_data.get('product_price'),
+            product_short_desc=api_data.get('product_short_desc'), 
+            subscription_only=api_data.get('subscription_only', False), 
+            status=api_data.get('status', 1)
+        )
+        
+        # Handle subscription plans if they exist in the API response
+        subscription_plans_data = api_data.get('subscription_plans', [])
+        if subscription_plans_data and isinstance(subscription_plans_data, list):
+            product.subscription_plans = []
+            for plan_data in subscription_plans_data:
+                try:
+                    subscription_plan = transform_subscription_plan(plan_data, product.id)
+                    product.subscription_plans.append(subscription_plan)
+                except Exception as e:
+                    logger.error(f"Error transforming subscription plan for product {product.id}: {str(e)}")
+                    continue
+        
+        return product
     except Exception as e:
         logger.error(f"Error transforming product: {str(e)}")
         logger.debug(f"Problematic product data: {api_data}")
+        raise
+
+
+def transform_subscription_plan(api_data: Dict[str, Any], product_id: int) -> SubscriptionPlan:
+    """Transform API subscription plan data into a SubscriptionPlan model instance.
+    
+    Args:
+        api_data: The subscription plan data from the API
+        product_id: The ID of the product this subscription plan belongs to
+        
+    Returns:
+        SubscriptionPlan instance
+    """
+    try:
+        return SubscriptionPlan(
+            id=api_data.get('id'),
+            product_id=product_id,
+            name=api_data.get('name'),
+            description=api_data.get('description'),
+            frequency=api_data.get('frequency'),
+            subscription_plan_price=api_data.get('subscription_plan_price'),
+            created_at=safe_parse_datetime(api_data.get('created_at')),
+            modified_at=safe_parse_datetime(api_data.get('modified_at'))
+        )
+    except Exception as e:
+        logger.error(f"Error transforming subscription plan: {str(e)}")
+        logger.debug(f"Problematic subscription plan data: {api_data}")
         raise
 
 

@@ -11,12 +11,13 @@ from sqlalchemy.orm import Session
 from src.api.keap_client import KeapClient
 from src.api.exceptions import KeapRateLimitError, KeapServerError, KeapQuotaExhaustedError
 from src.database.config import SessionLocal
-from src.models.models import (Affiliate, CustomField, Product, Tag, TagCategory)
+from src.models.models import (Affiliate, CustomField, Product, Tag, TagCategory, SubscriptionPlan)
 from src.transformers.transformers import (transform_credit_card, transform_tag)
 from src.utils.error_logger import ErrorLogger
 from src.utils.global_logger import get_error_logger, initialize_loggers
 from src.utils.logging_config import setup_logging
 from src.utils.retry import exponential_backoff
+from src.scripts.reprocess_errors import ErrorReprocessor
 
 # Create logs and checkpoints directories if they don't exist
 os.makedirs('logs', exist_ok=True)
@@ -247,6 +248,7 @@ def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: Chec
     total_records = 0
     success_count = 0
     failed_count = 0
+    error_logger = get_error_logger()  # Initialize error logger
 
     try:
         # Get query parameters based on update flag
@@ -291,11 +293,13 @@ def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: Chec
                 except SQLAlchemyError as e:
                     failed_count += 1
                     logger.error(f"Database error processing custom field {field.id} from {model_entity_type}: {str(e)}")
+                    log_error(error_logger, 'custom_fields', field.id, e, {'model_entity_type': model_entity_type, 'field_name': getattr(field, 'name', None)})
                     db.rollback()
                     continue
                 except Exception as e:
                     failed_count += 1
                     logger.error(f"Error processing custom field {field.id} from {model_entity_type}: {str(e)}")
+                    log_error(error_logger, 'custom_fields', field.id, e, {'model_entity_type': model_entity_type, 'field_name': getattr(field, 'name', None)})
                     db.rollback()
                     continue
 
@@ -309,6 +313,7 @@ def load_custom_fields(client: KeapClient, db: Session, checkpoint_manager: Chec
 
     except Exception as e:
         logger.error(f"Error loading custom fields: {str(e)}")
+        log_error(error_logger, 'custom_fields', 0, e, {'operation': 'load_custom_fields'})
         raise
 
     return total_records, success_count, failed_count
@@ -492,36 +497,47 @@ def load_products(client: KeapClient, db_session: Session, checkpoint_manager: C
 
 @exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_product_by_id(client: KeapClient, db_session: Session, product_id: int) -> bool:
-    """Load a single product by ID from Keap API into database."""
+    """Load a single product by ID from Keap API into database.
+    
+    This function also handles subscription plans that are embedded in the product API response.
+    """
+    error_logger = get_error_logger()  # Get error logger for file logging
+    
     try:
         logger.info(f"Loading product ID: {product_id}")
 
-        # Get full product details
+        # Get full product details (includes subscription plans)
         full_product = client.get_product(product_id)
         logger.info(f"Retrieved full product details for ID: {product_id}")
 
-        # First, check if product exists
-        existing_product = db_session.query(Product).filter(Product.id == product_id).first()
+        # Store subscription plans for later handling
+        product_subscription_plans = full_product.subscription_plans if hasattr(full_product, 'subscription_plans') else []
 
-        if existing_product:
-            # Create update dictionary for product attributes
-            update_dict = {}
-            for key, value in full_product.__dict__.items():
-                if not key.startswith('_') and not isinstance(value, (list, dict)):
-                    update_dict[key] = value
+        # Clear subscription plans from the product to avoid relationship conflicts
+        if hasattr(full_product, 'subscription_plans'):
+            full_product.subscription_plans = []
 
-            # Update the product attributes
-            db_session.query(Product).filter(Product.id == product_id).update(update_dict)
+        # Use merge to handle both new and existing products
+        # This will insert if the product doesn't exist, or update if it does
+        merged_product = db_session.merge(full_product)
+        
+        # Handle relationships if needed
+        if hasattr(full_product, 'options'):
+            merged_product.options = full_product.options
 
-            # Get the updated product
-            product = db_session.query(Product).filter(Product.id == product_id).first()
-
-            # Handle relationships if needed
-            if hasattr(full_product, 'options'):
-                product.options = full_product.options
-        else:
-            # Add new product
-            db_session.add(full_product)
+        # Handle subscription plans after the product is merged
+        if product_subscription_plans:
+            for subscription_plan in product_subscription_plans:
+                try:
+                    # Ensure the subscription plan has the correct product_id
+                    subscription_plan.product_id = product_id
+                    # Merge the subscription plan
+                    merged_plan = db_session.merge(subscription_plan)
+                    # Add to the product's subscription plans relationship
+                    merged_product.subscription_plans.append(merged_plan)
+                except Exception as e:
+                    logger.warning(f"Error processing subscription plan {subscription_plan.id} for product {product_id}: {str(e)}")
+                    continue
 
         db_session.commit()
         logger.info(f"Successfully processed product ID: {product_id}")
@@ -534,11 +550,14 @@ def load_product_by_id(client: KeapClient, db_session: Session, product_id: int)
     except KeapQuotaExhaustedError as e:
         # Quota exhaustion is not retryable, log and return False
         logger.error(f"Quota exhausted while processing product ID {product_id}: {e}")
+        log_error(error_logger, 'products', product_id, e, {'product_id': product_id})
         return False
     except Exception as e:
         # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing product ID {product_id}: {e}")
+        # Log to error file
+        log_error(error_logger, 'products', product_id, e, {'product_id': product_id})
         return False
 
 
@@ -622,6 +641,8 @@ def load_contacts(client: KeapClient, db: Session, checkpoint_manager: Checkpoin
 @exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_contact_by_id(client: KeapClient, db_session: Session, contact_id: int) -> bool:
     """Load a single contact by ID from Keap API into database."""
+    error_logger = get_error_logger()  # Get error logger for file logging
+    
     try:
         logger.info(f"Loading contact ID: {contact_id}")
 
@@ -678,11 +699,14 @@ def load_contact_by_id(client: KeapClient, db_session: Session, contact_id: int)
     except KeapQuotaExhaustedError as e:
         # Quota exhaustion is not retryable, log and return False
         logger.error(f"Quota exhausted while processing contact ID {contact_id}: {e}")
+        log_error(error_logger, 'contacts', contact_id, e, {'contact_id': contact_id})
         return False
     except Exception as e:
         # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing contact ID {contact_id}: {e}")
+        # Log to error file
+        log_error(error_logger, 'contacts', contact_id, e, {'contact_id': contact_id})
         return False
 
 
@@ -761,6 +785,8 @@ def load_opportunities(client: KeapClient, db_session: Session, checkpoint_manag
 @exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_opportunity_by_id(client: KeapClient, db_session: Session, opportunity_id: int) -> bool:
     """Load a single opportunity by ID from Keap API into database."""
+    error_logger = get_error_logger()  # Get error logger for file logging
+    
     try:
         logger.info(f"Loading opportunity ID: {opportunity_id}")
 
@@ -793,11 +819,14 @@ def load_opportunity_by_id(client: KeapClient, db_session: Session, opportunity_
     except KeapQuotaExhaustedError as e:
         # Quota exhaustion is not retryable, log and return False
         logger.error(f"Quota exhausted while processing opportunity ID {opportunity_id}: {e}")
+        log_error(error_logger, 'opportunities', opportunity_id, e, {'opportunity_id': opportunity_id})
         return False
     except Exception as e:
         # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing opportunity ID {opportunity_id}: {e}")
+        # Log to error file
+        log_error(error_logger, 'opportunities', opportunity_id, e, {'opportunity_id': opportunity_id})
         return False
 
 
@@ -875,6 +904,8 @@ def load_affiliates(client: KeapClient, db: Session, checkpoint_manager: Checkpo
 @exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_affiliate_by_id(client: KeapClient, db_session: Session, affiliate_id: int) -> bool:
     """Load a single affiliate by ID from Keap API into database."""
+    error_logger = get_error_logger()  # Get error logger for file logging
+    
     try:
         logger.info(f"Loading affiliate ID: {affiliate_id}")
 
@@ -923,11 +954,14 @@ def load_affiliate_by_id(client: KeapClient, db_session: Session, affiliate_id: 
     except KeapQuotaExhaustedError as e:
         # Quota exhaustion is not retryable, log and return False
         logger.error(f"Quota exhausted while processing affiliate ID {affiliate_id}: {e}")
+        log_error(error_logger, 'affiliates', affiliate_id, e, {'affiliate_id': affiliate_id})
         return False
     except Exception as e:
         # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing affiliate ID {affiliate_id}: {e}")
+        # Log to error file
+        log_error(error_logger, 'affiliates', affiliate_id, e, {'affiliate_id': affiliate_id})
         return False
 
 
@@ -1081,6 +1115,7 @@ def load_affiliate_programs(client: KeapClient, db: Session, checkpoint_manager:
 
     except Exception as e:
         logger.error(f"Error in load_affiliate_programs: {str(e)}")
+        log_error(error_logger, 'affiliate_programs', 0, e, {'operation': 'load_affiliate_programs'})
         raise
 
 
@@ -1160,6 +1195,7 @@ def load_affiliate_redirects(client: KeapClient, db: Session, checkpoint_manager
 
     except Exception as e:
         logger.error(f"Error in load_affiliate_redirects: {str(e)}")
+        log_error(error_logger, 'affiliate_redirects', 0, e, {'operation': 'load_affiliate_redirects'})
         raise
 
 
@@ -1438,6 +1474,8 @@ def load_orders(client: KeapClient, db_session: Session, checkpoint_manager: Che
 @exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_order_by_id(client: KeapClient, db_session: Session, order_id: int) -> bool:
     """Load a single order by ID from Keap API into database."""
+    error_logger = get_error_logger()  # Get error logger for file logging
+    
     try:
         logger.info(f"Loading order ID: {order_id}")
 
@@ -1498,11 +1536,14 @@ def load_order_by_id(client: KeapClient, db_session: Session, order_id: int) -> 
     except KeapQuotaExhaustedError as e:
         # Quota exhaustion is not retryable, log and return False
         logger.error(f"Quota exhausted while processing order ID {order_id}: {e}")
+        log_error(error_logger, 'orders', order_id, e, {'order_id': order_id})
         return False
     except Exception as e:
         # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing order ID {order_id}: {e}")
+        # Log to error file
+        log_error(error_logger, 'orders', order_id, e, {'order_id': order_id})
         return False
 
 
@@ -1569,6 +1610,8 @@ def load_tasks(client: KeapClient, db_session: Session, checkpoint_manager: Chec
 @exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_task_by_id(client: KeapClient, db_session: Session, task_id: int) -> bool:
     """Load a single task by ID from Keap API into database."""
+    error_logger = get_error_logger()  # Get error logger for file logging
+    
     try:
         logger.info(f"Loading task ID: {task_id}")
 
@@ -1601,11 +1644,14 @@ def load_task_by_id(client: KeapClient, db_session: Session, task_id: int) -> bo
     except KeapQuotaExhaustedError as e:
         # Quota exhaustion is not retryable, log and return False
         logger.error(f"Quota exhausted while processing task ID {task_id}: {e}")
+        log_error(error_logger, 'tasks', task_id, e, {'task_id': task_id})
         return False
     except Exception as e:
         # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing task ID {task_id}: {e}")
+        # Log to error file
+        log_error(error_logger, 'tasks', task_id, e, {'task_id': task_id})
         return False
 
 
@@ -1683,6 +1729,8 @@ def load_notes(client: KeapClient, db_session: Session, checkpoint_manager: Chec
 @exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_note_by_id(client: KeapClient, db_session: Session, note_id: int) -> bool:
     """Load a single note by ID from Keap API into database."""
+    error_logger = get_error_logger()  # Get error logger for file logging
+    
     try:
         logger.info(f"Loading note ID: {note_id}")
 
@@ -1704,11 +1752,14 @@ def load_note_by_id(client: KeapClient, db_session: Session, note_id: int) -> bo
     except KeapQuotaExhaustedError as e:
         # Quota exhaustion is not retryable, log and return False
         logger.error(f"Quota exhausted while processing note ID {note_id}: {e}")
+        log_error(error_logger, 'notes', note_id, e, {'note_id': note_id})
         return False
     except Exception as e:
         # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing note ID {note_id}: {e}")
+        # Log to error file
+        log_error(error_logger, 'notes', note_id, e, {'note_id': note_id})
         return False
 
 
@@ -1786,26 +1837,14 @@ def load_campaigns(client: KeapClient, db_session: Session, checkpoint_manager: 
 @exponential_backoff(max_retries=5, base_delay=1.0, max_delay=60.0, exponential_base=2.0, jitter=True, exceptions=(KeapRateLimitError, KeapServerError))
 def load_campaign_by_id(client: KeapClient, db_session: Session, campaign_id: int) -> bool:
     """Load a single campaign by ID from Keap API into database."""
+    error_logger = get_error_logger()  # Get error logger for file logging
+    
     try:
         logger.info(f"Loading campaign ID: {campaign_id}")
 
-        # Get full campaign details
+        # Get full campaign details (includes sequences)
         full_campaign = client.get_campaign(campaign_id)
         logger.info(f"Retrieved full campaign details for ID: {campaign_id}")
-
-        # Get campaign sequences
-        try:
-            sequences = client.get_campaign_sequences(campaign_id)
-            logger.info(f"Retrieved {len(sequences)} sequences for campaign ID: {campaign_id}")
-        except Exception as e:
-            logger.error(f"Error getting sequences for campaign {campaign_id}: {str(e)}")
-            sequences = []  # Continue with empty sequences list
-
-        # Clear and set relationships
-        if hasattr(full_campaign, 'sequences'):
-            full_campaign.sequences = []
-            for sequence in sequences:
-                full_campaign.sequences.append(sequence)
 
         # Use merge instead of add to handle both inserts and updates
         db_session.merge(full_campaign)
@@ -1821,11 +1860,14 @@ def load_campaign_by_id(client: KeapClient, db_session: Session, campaign_id: in
     except KeapQuotaExhaustedError as e:
         # Quota exhaustion is not retryable, log and return False
         logger.error(f"Quota exhausted while processing campaign ID {campaign_id}: {e}")
+        log_error(error_logger, 'campaigns', campaign_id, e, {'campaign_id': campaign_id})
         return False
     except Exception as e:
         # Other errors are not retryable
         db_session.rollback()
         logger.error(f"Error processing campaign ID {campaign_id}: {e}")
+        # Log to error file
+        log_error(error_logger, 'campaigns', campaign_id, e, {'campaign_id': campaign_id})
         return False
 
 
@@ -1864,7 +1906,7 @@ def load_subscriptions(client: KeapClient, db_session: Session, checkpoint_manag
                     success_count += 1
                 except Exception as e:
                     failed_count += 1
-                    log_error(error_logger, entity_type, item.id, e, {'plan_name': getattr(item, 'plan_name', None)})
+                    log_error(error_logger, entity_type, item.id, e, {'id': getattr(item, 'id', None)})
                     db_session.rollback()
                     continue
 
@@ -1888,7 +1930,7 @@ def main(update: bool = False, entity_type: str = None, entity_id: int = None):
     
     Args:
         update: Whether to perform an update operation using last_loaded timestamps
-        entity_type: Type of entity to load (products, contacts, affiliates, orders)
+        entity_type: Type of entity to load (products, contacts, affiliates, orders, opportunities, tasks, notes, campaigns, subscriptions)
         entity_id: ID of specific entity to load
     """
     start_time = datetime.now(timezone.utc)
@@ -1924,6 +1966,14 @@ def main(update: bool = False, entity_type: str = None, entity_id: int = None):
                 success = load_affiliate_by_id(client, db, entity_id)
             elif entity_type == 'orders':
                 success = load_order_by_id(client, db, entity_id)
+            elif entity_type == 'opportunities':
+                success = load_opportunity_by_id(client, db, entity_id)
+            elif entity_type == 'tasks':
+                success = load_task_by_id(client, db, entity_id)
+            elif entity_type == 'notes':
+                success = load_note_by_id(client, db, entity_id)
+            elif entity_type == 'campaigns':
+                success = load_campaign_by_id(client, db, entity_id)
             else:
                 logger.error(f"Unknown entity type: {entity_type}")
                 return
@@ -1932,6 +1982,66 @@ def main(update: bool = False, entity_type: str = None, entity_id: int = None):
                 success_count += 1
             else:
                 failed_count += 1
+        elif entity_type:
+            # Load specific entity type (all records)
+            if entity_type == 'custom_fields':
+                custom_fields_total, custom_fields_success, custom_fields_failed = load_custom_fields(client, db, checkpoint_manager, update=update)
+                total_records += custom_fields_total
+                success_count += custom_fields_success
+                failed_count += custom_fields_failed
+            elif entity_type == 'tags':
+                tags_total, tags_success, tags_failed = load_tags(client, db, checkpoint_manager, update=update)
+                total_records += tags_total
+                success_count += tags_success
+                failed_count += tags_failed
+            elif entity_type == 'products':
+                products_total, products_success, products_failed = load_products(client, db, checkpoint_manager, update=update)
+                total_records += products_total
+                success_count += products_success
+                failed_count += products_failed
+            elif entity_type == 'contacts':
+                contacts_total, contacts_success, contacts_failed = load_contacts(client, db, checkpoint_manager, update=update)
+                total_records += contacts_total
+                success_count += contacts_success
+                failed_count += contacts_failed
+            elif entity_type == 'opportunities':
+                opportunities_total, opportunities_success, opportunities_failed = load_opportunities(client, db, checkpoint_manager, update=update)
+                total_records += opportunities_total
+                success_count += opportunities_success
+                failed_count += opportunities_failed
+            elif entity_type == 'affiliates':
+                affiliates_total, affiliates_success, affiliates_failed = load_affiliates(client, db, checkpoint_manager, update=update)
+                total_records += affiliates_total
+                success_count += affiliates_success
+                failed_count += affiliates_failed
+            elif entity_type == 'orders':
+                orders_total, orders_success, orders_failed = load_orders(client, db, checkpoint_manager, update=update)
+                total_records += orders_total
+                success_count += orders_success
+                failed_count += orders_failed
+            elif entity_type == 'tasks':
+                tasks_total, tasks_success, tasks_failed = load_tasks(client, db, checkpoint_manager, update=update)
+                total_records += tasks_total
+                success_count += tasks_success
+                failed_count += tasks_failed
+            elif entity_type == 'notes':
+                notes_total, notes_success, notes_failed = load_notes(client, db, checkpoint_manager, update=update)
+                total_records += notes_total
+                success_count += notes_success
+                failed_count += notes_failed
+            elif entity_type == 'campaigns':
+                campaigns_total, campaigns_success, campaigns_failed = load_campaigns(client, db, checkpoint_manager, update=update)
+                total_records += campaigns_total
+                success_count += campaigns_success
+                failed_count += campaigns_failed
+            elif entity_type == 'subscriptions':
+                subscriptions_total, subscriptions_success, subscriptions_failed = load_subscriptions(client, db, checkpoint_manager, update=update)
+                total_records += subscriptions_total
+                success_count += subscriptions_success
+                failed_count += subscriptions_failed
+            else:
+                logger.error(f"Unknown entity type: {entity_type}")
+                return
         else:
             # Load all data in a specific order to maintain referential integrity
             # First load custom fields since they are referenced by contacts
@@ -1946,7 +2056,7 @@ def main(update: bool = False, entity_type: str = None, entity_id: int = None):
             success_count += tags_success
             failed_count += tags_failed
 
-            # Load products before orders and subscriptions
+            # Load products before orders and subscriptions (subscription plans are now handled as part of product loading)
             products_total, products_success, products_failed = load_products(client, db, checkpoint_manager, update=update)
             total_records += products_total
             success_count += products_success
@@ -2003,6 +2113,15 @@ def main(update: bool = False, entity_type: str = None, entity_id: int = None):
         logger.info(f"Total records processed: {total_records}")
         logger.info(f"Successfully processed: {success_count}")
         logger.info(f"Failed to process: {failed_count}")
+        # Run error reprocessing after main data load
+        if not entity_type and not entity_id:  # Only run for full loads, not individual entity loads
+            try:
+                reprocessor = ErrorReprocessor()
+                reprocessor.run()
+                logger.info("Error reprocessing completed")
+            except Exception as e:
+                logger.error(f"Error during error reprocessing: {str(e)}")
+                # Don't raise here - we don't want to fail the main load if reprocessing fails
 
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")
@@ -2010,13 +2129,15 @@ def main(update: bool = False, entity_type: str = None, entity_id: int = None):
     finally:
         db.close()
 
+    
+
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description='Load data from Keap API into database')
     parser.add_argument('--update', action='store_true', help='Perform update operation using last_loaded timestamps')
-    parser.add_argument('--entity-type', choices=['products', 'contacts', 'affiliates', 'orders'], help='Type of entity to load')
+    parser.add_argument('--entity-type', choices=['custom_fields', 'tags', 'products', 'contacts', 'affiliates', 'orders', 'opportunities', 'tasks', 'notes', 'campaigns', 'subscriptions'], help='Type of entity to load')
     parser.add_argument('--entity-id', type=int, help='ID of specific entity to load')
 
     args = parser.parse_args()

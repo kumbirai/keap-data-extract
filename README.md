@@ -103,11 +103,10 @@ keap-data-extract/
 │   └── utils/        # Utility functions
 ├── database/         # Database related files
 │   ├── migrations/   # Alembic migration files
-│   └── schemas/      # Database schemas
+│   └── schema.sql    # Database schema
 ├── docs/            # Documentation
 ├── logs/            # Log files
 ├── checkpoints/     # Data loading checkpoints
-├── tests/           # Test files
 ├── requirements.txt # Project dependencies
 └── .env            # Environment variables (create this file)
 ```
@@ -132,37 +131,46 @@ python -m src
 
 # Incremental update (load only new/changed data)
 python -m src --update
-```
-
-### Command Line Options
-
-The tool provides several command-line options:
-
-```bash
-# Basic usage
-python -m src
 
 # Enable debug logging
 python -m src --debug
+```
 
-# Perform incremental update
-python -m src --update
+### Advanced Usage (Direct Script Execution)
 
+For more granular control, you can run the data loading script directly:
+
+```bash
 # Load specific entity type
-python -m src --entity-type contacts
-python -m src --entity-type products
-python -m src --entity-type affiliates
-python -m src --entity-type orders
+python src/scripts/load_data.py --entity-type contacts
+python src/scripts/load_data.py --entity-type products
+python src/scripts/load_data.py --entity-type affiliates
+python src/scripts/load_data.py --entity-type orders
+python src/scripts/load_data.py --entity-type opportunities
+python src/scripts/load_data.py --entity-type tasks
+python src/scripts/load_data.py --entity-type notes
+python src/scripts/load_data.py --entity-type campaigns
+python src/scripts/load_data.py --entity-type subscriptions
 
 # Load specific entity by ID
-python -m src --entity-type contacts --entity-id 123
-python -m src --entity-type products --entity-id 456
-python -m src --entity-type affiliates --entity-id 789
-python -m src --entity-type orders --entity-id 101
+python src/scripts/load_data.py --entity-type contacts --entity-id 123
+python src/scripts/load_data.py --entity-type products --entity-id 456
+python src/scripts/load_data.py --entity-type affiliates --entity-id 789
+python src/scripts/load_data.py --entity-type orders --entity-id 101
+
+# Perform incremental update
+python src/scripts/load_data.py --update
 ```
 
 ### Command Line Arguments
 
+#### Main Module (`python -m src`)
+| Argument | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `--update` | Perform an update operation using last_loaded timestamps | No | False |
+| `--debug` | Enable debug logging | No | False |
+
+#### Direct Script (`python src/scripts/load_data.py`)
 | Argument | Description | Required | Default |
 |----------|-------------|----------|---------|
 | `--update` | Perform an update operation using last_loaded timestamps | No | False |
@@ -174,6 +182,11 @@ The `--entity-type` argument accepts the following values:
 - `contacts`: Load contact data
 - `affiliates`: Load affiliate data
 - `orders`: Load order data
+- `opportunities`: Load opportunity data
+- `tasks`: Load task data
+- `notes`: Load note data
+- `campaigns`: Load campaign data
+- `subscriptions`: Load subscription data
 
 When using `--entity-id`, you must also specify `--entity-type`.
 
@@ -183,7 +196,7 @@ The tool can extract the following data types from Keap:
 
 Core Data:
 - Contacts
-- Products
+- Products (including embedded subscription plans)
 - Orders
 - Opportunities
 - Tasks
@@ -203,6 +216,8 @@ Affiliate Data:
 - Affiliate Summaries
 - Affiliate Clawbacks
 - Affiliate Payments
+
+**Note:** Subscription plans are automatically loaded as part of the product loading process since they are embedded in the product API response, not as a separate endpoint.
 
 Each data type is loaded with its related data and maintains its own checkpoint for tracking progress.
 
