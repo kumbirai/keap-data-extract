@@ -490,7 +490,7 @@ class Contact(Base):
     notes = relationship("Note", secondary="contact_note", back_populates="contacts", cascade="none")
     orders = relationship("Order", secondary="contact_order", back_populates="contacts", cascade="none")
     subscriptions = relationship("Subscription", secondary="contact_subscription", back_populates="contacts", cascade="none")
-    credit_cards = relationship("CreditCard", back_populates="contact", cascade="save-update, merge, delete-orphan")
+    credit_cards = relationship("CreditCard", back_populates="contact", cascade="save-update, merge, delete, delete-orphan")
     affiliate = relationship("Affiliate", back_populates="contact", uselist=False, cascade="all, delete-orphan")
     direct_orders = relationship("Order", back_populates="contact", foreign_keys="Order.contact_id")
 

@@ -17,7 +17,6 @@ from src.utils.error_logger import ErrorLogger
 from src.utils.global_logger import get_error_logger, initialize_loggers
 from src.utils.logging_config import setup_logging
 from src.utils.retry import exponential_backoff
-from src.scripts.reprocess_errors import ErrorReprocessor
 
 # Create logs and checkpoints directories if they don't exist
 os.makedirs('logs', exist_ok=True)
@@ -2116,6 +2115,7 @@ def main(update: bool = False, entity_type: str = None, entity_id: int = None):
         # Run error reprocessing after main data load
         if not entity_type and not entity_id:  # Only run for full loads, not individual entity loads
             try:
+                from src.scripts.reprocess_errors import ErrorReprocessor
                 reprocessor = ErrorReprocessor()
                 reprocessor.run()
                 logger.info("Error reprocessing completed")
