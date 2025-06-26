@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="#2563eb" stroke="#1e40af" stroke-width="4"/>
+  
+  <!-- Database icon -->
+  <ellipse cx="128" cy="80" rx="60" ry="20" fill="#ffffff" opacity="0.9"/>
+  <rect x="68" y="80" width="120" height="60" fill="#ffffff" opacity="0.9"/>
+  <ellipse cx="128" cy="140" rx="60" ry="20" fill="#ffffff" opacity="0.9"/>
+  
+  <!-- Data flow arrows -->
+  <g stroke="#ffffff" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Arrow from database to extraction -->
+    <path d="M 128 160 L 128 180" opacity="0.8"/>
+    <path d="M 120 172 L 128 180 L 136 172" opacity="0.8"/>
+    
+    <!-- Arrow to output -->
+    <path d="M 128 180 L 128 200" opacity="0.6"/>
+    <path d="M 120 192 L 128 200 L 136 192" opacity="0.6"/>
+  </g>
+  
+  <!-- Data extraction symbol -->
+  <g fill="#ffffff" opacity="0.9">
+    <!-- Document/File icon -->
+    <rect x="100" y="190" width="56" height="40" rx="4" fill="#ffffff" opacity="0.9"/>
+    <rect x="108" y="198" width="40" height="2" fill="#2563eb"/>
+    <rect x="108" y="204" width="32" height="2" fill="#2563eb"/>
+    <rect x="108" y="210" width="36" height="2" fill="#2563eb"/>
+    <rect x="108" y="216" width="28" height="2" fill="#2563eb"/>
+  </g>
+  
+  <!-- Connection dots -->
+  <circle cx="128" cy="160" r="3" fill="#ffffff" opacity="0.8"/>
+  <circle cx="128" cy="180" r="3" fill="#ffffff" opacity="0.6"/>
+  
+  <!-- Keap branding element (simplified K) -->
+  <g fill="#ffffff" opacity="0.7">
+    <path d="M 110 60 L 110 70 L 118 70 L 118 65 L 125 70 L 135 70 L 125 62 L 135 60 L 125 60 Z"/>
+  </g>
+</svg> 
